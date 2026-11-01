@@ -1,0 +1,30 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Local outputs and machine-specific AI configuration
+.tmp/
+reports/
+build/
+.DS_Store
+*.swp
+.env
+.env.*
+!.env.example
+.trae/mcp.json
+.vscode/mcp.json
+.vscode/settings.json
+
+# Python verification caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Local logs, exports, and editor backups
+*.log
+export.cfg
+export_credentials.cfg
+*.tmp
+*.bak
+*~

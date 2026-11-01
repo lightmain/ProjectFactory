@@ -1,0 +1,6 @@
+# Normalize EOL for all files that Git considers text files.
+* text=auto eol=lf
+
+# Preserve upstream EOF spacing while retaining other whitespace checks.
+addons/** whitespace=-blank-at-eof
+.trae/skills/** whitespace=-blank-at-eof
