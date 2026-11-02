@@ -45,6 +45,22 @@ settings/test/test_lookup_folder="tests"
 
 [input]
 
+select_miner={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":52)]
+}
+select_belt={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":53)]
+}
+select_chest={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":54)]
+}
+rotate_build={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":82)]
+}
 toggle_inventory={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":73)]

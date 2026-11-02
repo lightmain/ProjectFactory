@@ -25,8 +25,15 @@ static func cast(
 	var distance: float = 0.0
 	var normal: Vector3i = Vector3i.ZERO
 	while distance <= max_distance:
-		if world.get_block(cell) != VoxelWorldData.Block.AIR:
-			return VoxelHit.new(cell, normal, distance)
+		var block: int = world.get_block(cell)
+		if block != VoxelWorldData.Block.AIR:
+			if block != VoxelWorldData.Block.BELT:
+				return VoxelHit.new(cell, normal, distance)
+			var hit: VoxelHit = _cast_bounds(
+				cell, VoxelWorldData.block_bounds(cell, block), origin, ray, max_distance
+			)
+			if hit != null:
+				return hit
 		var axis: int = 0
 		if next_distance.y < next_distance.x:
 			axis = 1
@@ -38,3 +45,33 @@ static func cast(
 		normal[axis] = -step[axis]
 		next_distance[axis] += distance_step[axis]
 	return null
+
+
+static func _cast_bounds(
+	cell: Vector3i, bounds: AABB, origin: Vector3, ray: Vector3, max_distance: float
+) -> VoxelHit:
+	var entry: float = 0.0
+	var exit_distance: float = INF
+	var normal: Vector3i = Vector3i.ZERO
+	for axis: int in range(3):
+		if ray[axis] == 0.0:
+			if origin[axis] < bounds.position[axis] or origin[axis] > bounds.end[axis]:
+				return null
+			continue
+		var near_distance: float = (bounds.position[axis] - origin[axis]) / ray[axis]
+		var far_distance: float = (bounds.end[axis] - origin[axis]) / ray[axis]
+		if near_distance > far_distance:
+			var swap: float = near_distance
+			near_distance = far_distance
+			far_distance = swap
+		# A surface origin still has an entry face; strict interior origins do not.
+		if near_distance >= entry:
+			entry = near_distance
+			normal = Vector3i.ZERO
+			normal[axis] = -int(signf(ray[axis]))
+		exit_distance = minf(exit_distance, far_distance)
+		if entry > exit_distance:
+			return null
+	if entry > max_distance:
+		return null
+	return VoxelHit.new(cell, normal, entry)

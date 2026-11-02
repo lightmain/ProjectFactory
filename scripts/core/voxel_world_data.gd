@@ -5,9 +5,10 @@ extends RefCounted
 signal cell_changed(cell: Vector3i)
 signal world_reset
 
-enum Block { AIR, GRASS, DIRT, STONE, BEDROCK }
+enum Block { AIR, GRASS, DIRT, STONE, BEDROCK, MINER, BELT, CHEST }
 
 const CELL_SIZE: float = 0.5
+const BELT_HEIGHT: float = 0.08
 const MIN_CELL: Vector3i = Vector3i(-16, -4, -16)
 const MAX_CELL: Vector3i = Vector3i(16, 16, 16)
 
@@ -26,6 +27,14 @@ static func cell_bounds(cell: Vector3i) -> AABB:
 	return AABB(Vector3(cell) * CELL_SIZE, Vector3.ONE * CELL_SIZE)
 
 
+static func block_bounds(cell: Vector3i, block: int) -> AABB:
+	## Physical occupied volume; cell_bounds remains the reserved grid volume.
+	var bounds: AABB = cell_bounds(cell)
+	if block == Block.BELT:
+		bounds.size.y = BELT_HEIGHT
+	return bounds
+
+
 static func block_name(block: int) -> String:
 	match block:
 		Block.GRASS:
@@ -36,6 +45,12 @@ static func block_name(block: int) -> String:
 			return "Stone"
 		Block.BEDROCK:
 			return "Bedrock"
+		Block.MINER:
+			return "Miner"
+		Block.BELT:
+			return "Belt"
+		Block.CHEST:
+			return "Chest"
 		_:
 			return "Air"
 
@@ -81,7 +96,7 @@ func spawn_above_world(preferred: Vector3, body_size: Vector3) -> Vector3:
 		float(MAX_CELL.z) * CELL_SIZE - body_size.z)
 	var highest_top: float = float(MIN_CELL.y) * CELL_SIZE
 	for cell: Vector3i in _blocks:
-		var bounds: AABB = cell_bounds(cell)
+		var bounds: AABB = block_bounds(cell, get_block(cell))
 		if (
 			bounds.position.x < spawn.x + body_size.x * 0.5
 			and bounds.end.x > spawn.x - body_size.x * 0.5
@@ -103,11 +118,11 @@ func break_block(cell: Vector3i) -> bool:
 
 
 func place_block(cell: Vector3i, block: int, occupied_bounds: AABB = AABB()) -> bool:
-	if block < Block.GRASS or block > Block.STONE:
+	if block not in [Block.GRASS, Block.DIRT, Block.STONE, Block.MINER, Block.BELT, Block.CHEST]:
 		return false
 	if not is_in_bounds(cell) or get_block(cell) != Block.AIR:
 		return false
-	if occupied_bounds.has_volume() and cell_bounds(cell).intersects(occupied_bounds):
+	if occupied_bounds.has_volume() and block_bounds(cell, block).intersects(occupied_bounds):
 		return false
 	_blocks[cell] = block
 	cell_changed.emit(cell)

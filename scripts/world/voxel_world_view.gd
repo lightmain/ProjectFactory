@@ -77,9 +77,10 @@ func _rebuild_chunk(chunk: Vector3i) -> void:
 				var block: int = _world.get_block(cell)
 				if block == VoxelWorldData.Block.AIR:
 					continue
+				var bounds: AABB = VoxelWorldData.block_bounds(cell, block)
 				for normal: Vector3i in FACE_NORMALS:
-					if _world.get_block(cell + normal) == VoxelWorldData.Block.AIR:
-						_add_face(surface, cell, normal, block)
+					if not _face_covered(cell, normal, bounds):
+						_add_face(surface, cell, normal, block, bounds)
 						face_count += 1
 	if face_count == 0:
 		return
@@ -101,16 +102,39 @@ func _rebuild_chunk(chunk: Vector3i) -> void:
 	_chunks[chunk] = body
 
 
-static func _add_face(surface: SurfaceTool, cell: Vector3i, normal: Vector3i, block: int) -> void:
+func _face_covered(cell: Vector3i, normal: Vector3i, bounds: AABB) -> bool:
+	var neighbor_cell: Vector3i = cell + normal
+	var neighbor: int = _world.get_block(neighbor_cell)
+	if neighbor == VoxelWorldData.Block.AIR:
+		return false
+	var other: AABB = VoxelWorldData.block_bounds(neighbor_cell, neighbor)
+	var axis: int = 0 if normal.x != 0 else (1 if normal.y != 0 else 2)
+	var face: float = bounds.end[axis] if normal[axis] > 0 else bounds.position[axis]
+	var other_face: float = other.position[axis] if normal[axis] > 0 else other.end[axis]
+	if not is_equal_approx(face, other_face):
+		return false
+	for tangent: int in range(3):
+		if tangent == axis:
+			continue
+		if other.position[tangent] > bounds.position[tangent] or other.end[tangent] < bounds.end[tangent]:
+			return false
+	return true
+
+
+static func _add_face(
+	surface: SurfaceTool, cell: Vector3i, normal: Vector3i, block: int, bounds: AABB
+) -> void:
 	var u: Vector3 = Vector3(normal).cross(Vector3.UP)
 	var v: Vector3 = Vector3.UP
 	if normal.y != 0:
 		u = Vector3.RIGHT
 		v = Vector3.BACK if normal.y > 0 else Vector3.FORWARD
-	var center: Vector3 = VoxelWorldData.cell_center(cell) + Vector3(normal) * 0.25
+	var center: Vector3 = bounds.get_center() + Vector3(normal) * bounds.size * 0.5
+	u *= bounds.size * 0.5
+	v *= bounds.size * 0.5
 	var corners: Array[Vector3] = [
-		center + (-u - v) * 0.25, center + (u - v) * 0.25,
-		center + (u + v) * 0.25, center + (-u + v) * 0.25,
+		center - u - v, center + u - v,
+		center + u + v, center - u + v,
 	]
 	var color: Color = _face_color(block, normal)
 	# A small deterministic variation makes individual voxels readable.
@@ -130,5 +154,11 @@ static func _face_color(block: int, normal: Vector3i) -> Color:
 			return Color("#997457")
 		VoxelWorldData.Block.STONE:
 			return Color("#8d99a5")
+		VoxelWorldData.Block.MINER:
+			return Color("#d69238") if normal.y > 0 else Color("#9a652d")
+		VoxelWorldData.Block.BELT:
+			return Color("#344b58") if normal.y > 0 else Color("#657b85")
+		VoxelWorldData.Block.CHEST:
+			return Color("#b98a56") if normal.y > 0 else Color("#805e40")
 		_:
 			return Color("#454e5b")

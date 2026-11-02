@@ -4,6 +4,7 @@ extends CharacterBody3D
 signal break_requested
 signal place_requested
 signal block_selected(block: int)
+signal build_rotation_requested
 signal respawn_requested
 signal inventory_requested
 signal focus_lost
@@ -12,6 +13,8 @@ const BODY_RADIUS: float = 0.28
 const BODY_HEIGHT: float = 1.75
 
 @export var move_speed: float = 4.0
+## Maximum rise above the takeoff point, in metres.
+@export var max_jump_height: float = 1.6
 @export var mouse_sensitivity: float = 0.0025
 
 @onready var camera: Camera3D = $Camera3D
@@ -107,6 +110,14 @@ func handle_input(event: InputEvent) -> void:
 		block_selected.emit(VoxelWorldData.Block.DIRT)
 	elif event.is_action_pressed("select_stone"):
 		block_selected.emit(VoxelWorldData.Block.STONE)
+	elif event.is_action_pressed("select_miner"):
+		block_selected.emit(VoxelWorldData.Block.MINER)
+	elif event.is_action_pressed("select_belt"):
+		block_selected.emit(VoxelWorldData.Block.BELT)
+	elif event.is_action_pressed("select_chest"):
+		block_selected.emit(VoxelWorldData.Block.CHEST)
+	elif event.is_action_pressed("rotate_build") and not event.is_echo():
+		build_rotation_requested.emit()
 
 
 func _physics_process(delta: float) -> void:
@@ -121,7 +132,7 @@ func _physics_process(delta: float) -> void:
 	if _captured:
 		movement = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		if grounded and not _jump_requires_release and Input.is_action_just_pressed("jump"):
-			velocity.y = PlayerMotionRules.jump_speed()
+			velocity.y = PlayerMotionRules.jump_speed(max_jump_height)
 			grounded = false
 	var direction: Vector3 = Basis(Vector3.UP, camera.rotation.y) * Vector3(movement.x, 0, movement.y)
 	velocity.x = direction.x * move_speed
@@ -150,7 +161,11 @@ func _try_step(horizontal: Vector3) -> bool:
 		return false
 	var start: Transform3D = global_transform
 	var lift: Vector3 = Vector3.UP * (PlayerMotionRules.STEP_HEIGHT + safe_margin * 2.0)
-	if test_move(start, lift):
+	var clearance: KinematicCollision3D = KinematicCollision3D.new()
+	if test_move(start, lift, clearance):
+		# A low step may fit even when there is no room for the maximum lift.
+		lift = Vector3.UP * maxf(0.0, clearance.get_travel().y)
+	if lift.y <= safe_margin:
 		return false
 	var raised: Transform3D = start
 	raised.origin += lift
