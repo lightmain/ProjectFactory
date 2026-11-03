@@ -11,6 +11,10 @@ var interval: float
 var amount: int
 var next_production: float = INF
 var input_cursor: int = 0
+var belt_ores: Array[LogisticsOre] = []
+var settled_direction: Vector3i = Vector3i.FORWARD
+var eligible_quantity: int = 0
+var last_output_tick: int = -1
 var _placed_at: float
 var _produced_cycles: int = 0
 
@@ -29,9 +33,18 @@ func _init(kind: int, placed_at: float, mining_interval: float, mining_amount: i
 			next_production = deadline
 
 
-func produce() -> void:
-	quantity += amount
-	_produced_cycles += 1
-	# Multiplication avoids accumulating drift at every production cycle.
-	var deadline: float = _placed_at + float(_produced_cycles + 1) * interval
-	next_production = deadline if deadline > next_production else INF
+func produce_until(time: float) -> void:
+	## One integer calculation per miner, independent of the number of deadlines.
+	if next_production > time + 1e-9:
+		return
+	var elapsed_cycles: float = floorf((time - _placed_at + 1e-9) / interval)
+	if not is_finite(elapsed_cycles) or elapsed_cycles >= float(9223372036854775807):
+		next_production = INF
+		return
+	var cycles: int = int(elapsed_cycles)
+	if cycles <= _produced_cycles:
+		return
+	quantity += (cycles - _produced_cycles) * amount
+	_produced_cycles = cycles
+	var deadline: float = _placed_at + float(cycles + 1) * interval
+	next_production = deadline if deadline > time and deadline > next_production else INF

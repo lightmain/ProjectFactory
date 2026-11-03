@@ -35,7 +35,7 @@ func test_custom_miner_delivers_whole_batches_to_chest() -> void:
 	assert_int(_logistics.total_ore()).is_equal(12)
 
 
-func test_belt_pipeline_delivers_two_per_second_after_startup() -> void:
+func test_belt_pipeline_delivers_four_per_second_after_startup() -> void:
 	_logistics.bind_world(_world, 0.5, 8)
 	_place(Vector3i.ZERO, VoxelWorldData.Block.MINER)
 	_place(Vector3i.RIGHT, VoxelWorldData.Block.BELT)
@@ -44,7 +44,7 @@ func test_belt_pipeline_delivers_two_per_second_after_startup() -> void:
 	_logistics.advance(3.0)
 	var before: int = _logistics.ore_count(Vector3i.RIGHT * 3)
 	_logistics.advance(10.0)
-	assert_int(_logistics.ore_count(Vector3i.RIGHT * 3) - before).is_equal(20)
+	assert_int(_logistics.ore_count(Vector3i.RIGHT * 3) - before).is_equal(40)
 	assert_int(_logistics.total_ore()).is_equal(26 * 8)
 
 
@@ -56,7 +56,7 @@ func test_blocked_belt_retains_ore_and_resumes_when_connected() -> void:
 	assert_int(_logistics.total_ore()).is_equal(10)
 	_place(Vector3i.RIGHT * 2, VoxelWorldData.Block.CHEST)
 	_logistics.advance(2.0)
-	assert_int(_logistics.ore_count(Vector3i.RIGHT * 2)).is_equal(4)
+	assert_int(_logistics.ore_count(Vector3i.RIGHT * 2)).is_equal(9)
 	assert_int(_logistics.total_ore()).is_equal(12)
 
 
@@ -123,7 +123,7 @@ func test_three_inputs_merge_fairly_without_exceeding_capacity_or_throughput() -
 	for tick: int in range(20):
 		_logistics.advance(0.5)
 		assert_int(_logistics.ore_count(Vector3i.ZERO)).is_between(0, 2)
-	assert_int(_logistics.ore_count(Vector3i.RIGHT)).is_equal(19)
+	assert_int(_logistics.ore_count(Vector3i.RIGHT)).is_equal(37)
 	assert_int(_logistics.total_ore()).is_equal(20 * 4 * 3)
 	for cell: Vector3i in source_cells:
 		assert_int(_logistics.ore_count(cell)).is_less(20 * 4)

@@ -8,6 +8,7 @@ var _logistics: LogisticsData
 var _world: VoxelWorldData
 var _camera: Camera3D
 var _visuals: Dictionary[Vector3i, Node3D] = {}
+var _ore_visuals: Dictionary[int, MeshInstance3D] = {}
 var _ore_mesh: SphereMesh
 var _ore_material: StandardMaterial3D
 var _output_material: StandardMaterial3D
@@ -35,9 +36,21 @@ func bind_logistics(logistics: LogisticsData, world: VoxelWorldData, camera: Cam
 
 
 func _process(_delta: float) -> void:
+	var frame_offset: float = Engine.get_physics_interpolation_fraction() / float(
+		Engine.physics_ticks_per_second
+	)
+	refresh_from_data(frame_offset)
+
+
+func refresh_from_data(frame_offset: float = 0.0) -> void:
 	if _logistics == null or not is_visible_in_tree():
 		return
-	for cell: Vector3i in _logistics.machine_cells():
+	var visible_ores: Dictionary[int, bool] = {}
+	var belt_samples: Array[LogisticsOreQueue] = _logistics.sample_belts(
+		frame_offset
+	)
+	for sample: LogisticsOreQueue in belt_samples:
+		var cell: Vector3i = sample.cell
 		var nearby: bool = _camera.global_position.distance_squared_to(
 			VoxelWorldData.cell_center(cell)
 		) <= render_distance * render_distance
@@ -47,17 +60,35 @@ func _process(_delta: float) -> void:
 		if not _visuals.has(cell):
 			_visuals[cell] = _create_visual(cell)
 		var visual: Node3D = _visuals[cell]
+		if _world.get_block(cell) == VoxelWorldData.Block.BELT:
+			for ore: LogisticsOre in sample.ores:
+				visible_ores[ore.id] = true
+				if not _ore_visuals.has(ore.id):
+					var ore_visual: MeshInstance3D = _create_ore("BeltOre%d" % ore.id)
+					add_child(ore_visual)
+					_ore_visuals[ore.id] = ore_visual
+				_ore_visuals[ore.id].global_position = (
+					ore.surface_position(cell, sample.direction) + Vector3.UP * 0.04
+				)
+			continue
 		var count: int = _logistics.ore_count(cell)
 		var first: MeshInstance3D = visual.get_node("Ore1") as MeshInstance3D
 		var second: MeshInstance3D = visual.get_node("Ore2") as MeshInstance3D
 		first.visible = count > 0
 		second.visible = count > 1
+	for ore_id: int in _ore_visuals.keys():
+		if not visible_ores.has(ore_id):
+			_ore_visuals[ore_id].free()
+			_ore_visuals.erase(ore_id)
 
 
 func _clear() -> void:
 	for visual: Node3D in _visuals.values():
 		visual.free()
 	_visuals.clear()
+	for ore: MeshInstance3D in _ore_visuals.values():
+		ore.free()
+	_ore_visuals.clear()
 
 
 func _invalidate_cell(cell: Vector3i) -> void:
@@ -87,15 +118,21 @@ func _create_visual(cell: Vector3i) -> Node3D:
 	if block == VoxelWorldData.Block.BELT:
 		_add_port(root, "InputLeft", Vector3.LEFT, _input_material, bounds.size.y)
 		_add_port(root, "InputRight", Vector3.RIGHT, _input_material, bounds.size.y)
-	for index: int in range(2):
-		var ore: MeshInstance3D = MeshInstance3D.new()
-		ore.name = "Ore%d" % (index + 1)
-		ore.mesh = _ore_mesh
-		ore.material_override = _ore_material
-		ore.position = Vector3(-0.12, bounds.size.y * 0.5 + 0.04, -0.10 + float(index) * 0.19)
-		ore.visible = false
-		root.add_child(ore)
+	if block != VoxelWorldData.Block.BELT:
+		for index: int in range(2):
+			var ore: MeshInstance3D = _create_ore("Ore%d" % (index + 1))
+			ore.position = Vector3(-0.12, bounds.size.y * 0.5 + 0.04, -0.10 + float(index) * 0.19)
+			ore.visible = false
+			root.add_child(ore)
 	return root
+
+
+func _create_ore(label: String) -> MeshInstance3D:
+	var ore: MeshInstance3D = MeshInstance3D.new()
+	ore.name = label
+	ore.mesh = _ore_mesh
+	ore.material_override = _ore_material
+	return ore
 
 
 static func _arrow_mesh() -> ArrayMesh:
