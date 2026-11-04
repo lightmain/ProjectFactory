@@ -10,9 +10,9 @@
 | [README](README.md) | 项目简介、快速运行、玩家操作和文档入口 |
 | 本文件 | 智能体开发流程、命名、类型、架构和安全约束 |
 | [开发说明](docs/development.md) | 环境版本、验证命令、Git hook 与 CI 用法 |
-| [体素规格](docs/features/001-voxel-foundation.md) | 世界尺度、边界、方块编辑与重生规则 |
-| [玩家与物品栏规格](docs/features/002-player-and-inventory.md) | 碰撞、运动、物品栏行为和模块契约 |
-| [基础物流规格](docs/features/003-basic-logistics.md) | 生产、传送带、箱子、端口和渲染解耦 |
+| [体素规格](docs/features/prealpha-1/001-voxel-foundation.md) | 世界尺度、边界、方块编辑与重生规则 |
+| [玩家与物品栏规格](docs/features/prealpha-1/002-player-and-inventory.md) | 碰撞、运动、物品栏行为和模块契约 |
+| [基础物流规格](docs/features/prealpha-1/003-basic-logistics.md) | 生产、传送带、箱子、端口和渲染解耦 |
 | [AI 配置](docs/setup/godot_ai.md) | 编辑器与 Trae 的连接步骤 |
 | `docs/reviews/` | 带日期和验证范围的历史审查证据 |
 

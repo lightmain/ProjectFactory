@@ -1,6 +1,6 @@
 # 002：轴对齐玩家、运动与空物品栏
 
-维护类型：当前玩家与物品栏规则、验收及模块契约。开发约束见 [AGENTS](../../AGENTS.md)；
+维护类型：当前玩家与物品栏规则、验收及模块契约。开发约束见 [AGENTS](../../../AGENTS.md)；
 体素尺度与世界规则见 [对应规格](001-voxel-foundation.md)。
 
 ## 验收与范围
@@ -50,8 +50,8 @@
 
 ## 验收入口
 
-- [运动规则测试](../../tests/unit/test_player_motion_rules.gd)与
-  [玩家物理测试](../../tests/integration/test_player_movement.gd)：轴对齐、重力、跳高和台阶限制。
-- [库存数据测试](../../tests/unit/test_inventory_data.gd)：容量、快照、堆叠、移动和非法操作。
-- [界面集成测试](../../tests/integration/test_inventory_view.gd)：开关、输入隔离、失焦和数据刷新。
-- [验证命令](../development.md#本地检查)与 [初次审查记录](../reviews/002-player-and-inventory.md)。
+- [运动规则测试](../../../tests/unit/test_player_motion_rules.gd)与
+  [玩家物理测试](../../../tests/integration/test_player_movement.gd)：轴对齐、重力、跳高和台阶限制。
+- [库存数据测试](../../../tests/unit/test_inventory_data.gd)：容量、快照、堆叠、移动和非法操作。
+- [界面集成测试](../../../tests/integration/test_inventory_view.gd)：开关、输入隔离、失焦和数据刷新。
+- [验证命令](../../development.md#本地检查)与 [初次审查记录](../../reviews/002-player-and-inventory.md)。

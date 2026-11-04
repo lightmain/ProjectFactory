@@ -1,6 +1,6 @@
 # 001：体素工厂基础框架
 
-维护类型：当前世界规则与验收。开发约束见 [AGENTS](../../AGENTS.md)；
+维护类型：当前世界规则与验收。开发约束见 [AGENTS](../../../AGENTS.md)；
 玩家运动与物品栏契约见 [对应规格](002-player-and-inventory.md)。
 
 ## 目标与验收
@@ -34,7 +34,7 @@
 
 ## 验收入口
 
-- [世界规则测试](../../tests/unit/test_voxel_world_data.gd)：尺度、生成、边界、编辑和安全重生。
-- [射线测试](../../tests/unit/test_voxel_raycast.gd)：命中、距离和数据更新。
-- [场景协作测试](../../tests/integration/test_factory_game.gd)：落地、输入、碰撞更新和重生。
-- [验证命令](../development.md#本地检查)与 [初次审查记录](../reviews/001-voxel-foundation.md)。
+- [世界规则测试](../../../tests/unit/test_voxel_world_data.gd)：尺度、生成、边界、编辑和安全重生。
+- [射线测试](../../../tests/unit/test_voxel_raycast.gd)：命中、距离和数据更新。
+- [场景协作测试](../../../tests/integration/test_factory_game.gd)：落地、输入、碰撞更新和重生。
+- [验证命令](../../development.md#本地检查)与 [初次审查记录](../../reviews/001-voxel-foundation.md)。

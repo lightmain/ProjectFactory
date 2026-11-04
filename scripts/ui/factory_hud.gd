@@ -12,6 +12,8 @@ var _slot_blocks: Array[int] = [
 var _build_hint: Label
 var _active_style: StyleBoxFlat
 var _idle_style: StyleBoxFlat
+var _notice: Label
+var _notice_seconds: float = 0.0
 
 
 func _ready() -> void:
@@ -22,12 +24,24 @@ func _ready() -> void:
 	subtitle.text = "BASIC LOGISTICS     /     0.5 m GRID"
 	_target = _label(Vector2(28, 94), 14, Color("#d9e7e4"))
 	_build_hint = _label(Vector2(28, 122), 14, Color("#b5ddb1"))
+	var localized_font: FontFile = preload("res://assets/fonts/build_ui.ttf")
+	_build_hint.add_theme_font_override("font", localized_font)
 	_hint = _label(Vector2.ZERO, 15, Color("#edf3f3"))
 	_hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	_hint.offset_left = 28
 	_hint.offset_top = -64
 	_hint.offset_bottom = -20
 	_hint.text = "WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nI  Inventory    ESC  Cursor    1 - 6  Build tool    R  Rotate"
+	_notice = _label(Vector2.ZERO, 19, Color("#ffaaa3"))
+	_notice.add_theme_font_override("font", localized_font)
+	_notice.name = "BuildNotice"
+	_notice.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_notice.offset_left = -320
+	_notice.offset_right = 320
+	_notice.offset_top = -156
+	_notice.offset_bottom = -120
+	_notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_notice.hide()
 	var hotbar: HBoxContainer = HBoxContainer.new()
 	hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hotbar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
@@ -49,9 +63,21 @@ func _ready() -> void:
 	queue_redraw()
 
 
+func _process(delta: float) -> void:
+	_notice_seconds = maxf(0.0, _notice_seconds - delta)
+	_notice.visible = _notice_seconds > 0.0
+
+
+func show_build_notice(message: String) -> void:
+	_notice.text = message
+	_notice_seconds = 1.8
+	_notice.show()
+
+
 func update_status(
 	block: int, hit: VoxelHit, world: VoxelWorldData, captured: bool,
-	logistics: LogisticsData = null, direction: Vector3i = Vector3i.ZERO
+	logistics: LogisticsData = null, direction: Vector3i = Vector3i.ZERO,
+	belt_active: bool = false, locked_count: int = 0
 ) -> void:
 	if hit == null:
 		_target.text = "Aim at a block within 5 m"
@@ -68,6 +94,11 @@ func update_status(
 		if direction.z != 0:
 			facing = "+Z" if direction.z > 0 else "-Z"
 		_build_hint.text = "OUTPUT → %s    /    R Rotate    /    Belt: 2 ore/s" % facing
+	if block == VoxelWorldData.Block.BELT:
+		_build_hint.text = (
+			"右键完成  /  C 锁定此前路径  /  左键取消  /  已锁定 %d 格" % locked_count
+			if belt_active else "右键选起点，再右键选终点  /  自动绕障  /  R 转向"
+		)
 	if not captured:
 		_target.text = "CURSOR RELEASED  /  Click to resume"
 	for index: int in range(_slots.size()):

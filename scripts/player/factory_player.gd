@@ -5,9 +5,11 @@ signal break_requested
 signal place_requested
 signal block_selected(block: int)
 signal build_rotation_requested
+signal build_waypoint_requested
 signal respawn_requested
 signal inventory_requested
 signal focus_lost
+signal controls_capture_changed(captured: bool)
 
 const BODY_RADIUS: float = 0.28
 const BODY_HEIGHT: float = 1.75
@@ -43,8 +45,11 @@ func _exit_tree() -> void:
 
 
 func set_controls_captured(captured: bool) -> void:
+	var previous: bool = _captured
 	_captured = captured and not _inventory_open
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _captured else Input.MOUSE_MODE_VISIBLE
+	if previous != _captured:
+		controls_capture_changed.emit(_captured)
 
 
 func controls_captured() -> bool:
@@ -65,6 +70,16 @@ func occupied_bounds() -> AABB:
 		global_position + Vector3(-BODY_RADIUS, 0, -BODY_RADIUS),
 		Vector3(BODY_RADIUS * 2.0, BODY_HEIGHT, BODY_RADIUS * 2.0)
 	)
+
+
+func can_raise_to(surface_y: float) -> bool:
+	var rise: float = surface_y + safe_margin - global_position.y
+	return rise <= 0.0 or not test_move(global_transform, Vector3.UP * rise)
+
+
+func raise_to(surface_y: float) -> void:
+	global_position.y = maxf(global_position.y, surface_y + safe_margin)
+	velocity.y = maxf(0.0, velocity.y)
 
 
 func respawn(at: Vector3) -> void:
@@ -118,6 +133,8 @@ func handle_input(event: InputEvent) -> void:
 		block_selected.emit(VoxelWorldData.Block.CHEST)
 	elif event.is_action_pressed("rotate_build") and not event.is_echo():
 		build_rotation_requested.emit()
+	elif event.is_action_pressed("lock_belt_path") and not event.is_echo():
+		build_waypoint_requested.emit()
 
 
 func _physics_process(delta: float) -> void:

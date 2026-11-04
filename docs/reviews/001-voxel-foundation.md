@@ -1,8 +1,8 @@
 # 001：体素基础框架审查与验证
 
 历史记录：下文保留基础框架实现当次的证据，测试数量、跳高和环境状态不代表当前版本。
-当前规则见 [体素规格](../features/001-voxel-foundation.md)与
-[玩家规格](../features/002-player-and-inventory.md)。
+当前规则见 [体素规格](../features/prealpha-1/001-voxel-foundation.md)与
+[玩家规格](../features/prealpha-1/002-player-and-inventory.md)。
 
 日期：2026-11-01。引擎：Godot 4.7.2 stable，macOS。
 

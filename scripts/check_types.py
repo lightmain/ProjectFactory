@@ -20,7 +20,7 @@ def main() -> int:
     godot_bin = sys.argv[1]
     with tempfile.TemporaryDirectory(prefix="project-factory-types-") as temporary:
         check_root = Path(temporary)
-        for directory in ("addons", "scripts", "scenes"):
+        for directory in ("addons", "scripts", "scenes", "assets"):
             shutil.copytree(project_root / directory, check_root / directory)
         shutil.copy2(project_root / "icon.svg", check_root / "icon.svg")
         configuration = (project_root / "project.godot").read_text(encoding="utf-8")

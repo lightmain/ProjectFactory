@@ -103,8 +103,6 @@ func set_direction(cell: Vector3i, direction: Vector3i) -> bool:
 	var machine: LogisticsMachine = _topology.machines[index]
 	if machine.direction == direction:
 		return true
-	if machine.block == VoxelWorldData.Block.BELT and machine.quantity > 0:
-		return false
 	machine.direction = direction
 	_topology.dirty = true
 	_version += 1

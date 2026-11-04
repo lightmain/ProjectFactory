@@ -89,6 +89,14 @@ func rebuild() -> void:
 	inputs.fill(-1)
 	for machine: LogisticsMachine in machines:
 		work += 1
+		# Apply the final requested rotation once, at the same boundary as edges.
+		var facing: Vector3i = machine.settled_direction
+		while facing != machine.direction:
+			facing = Vector3i(-facing.z, 0, facing.x)
+			for ore: LogisticsOre in machine.belt_ores:
+				ore.incoming_direction = Vector3i(
+					-ore.incoming_direction.z, 0, ore.incoming_direction.x
+				)
 		machine.settled_direction = machine.direction
 	for target: int in range(machines.size()):
 		work += 1

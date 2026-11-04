@@ -1,7 +1,7 @@
 # 002：玩家运动与空物品栏审查
 
 历史记录：下文保留玩家与物品栏实现当次的证据，不随之后的实现更新。
-当前规则见 [玩家与物品栏规格](../features/002-player-and-inventory.md)。
+当前规则见 [玩家与物品栏规格](../features/prealpha-1/002-player-and-inventory.md)。
 
 日期：2026-11-01；Godot 4.7.2、Jolt Physics。
 
@@ -47,7 +47,7 @@
   单位规则在 60/120 Hz 均不超过 1.5 米，集成允许 0.001 米物理恢复容差。
 - 测试用物品定义只存在测试代码中；游戏没有实际物品或自由掉落物。
 
-官方参考与架构取舍见 `docs/features/002-player-and-inventory.md`。
+官方参考与架构取舍见 `docs/features/prealpha-1/002-player-and-inventory.md`。
 现有三种方块为沙盒建造工具，与空物品栏分开；不提供存档和拖拽物品 UI。
 
 ## 第二轮独立复审与最终检查
@@ -63,7 +63,7 @@
 ## 2026-11-02：跳高与完整方块台阶修正
 
 - 对应变更：基线 `94e7797` 上的 `fix/player-step-and-jump-height`；
-  当前验收见 [玩家规格](../features/002-player-and-inventory.md)，本条不改写此前证据。
+  当前验收见 [玩家规格](../features/prealpha-1/002-player-and-inventory.md)，本条不改写此前证据。
 - 原因：之前自动台阶按 0.5 格换算为 0.25 米，拒绝完整方块；
   本次要求为直接走上 0.5 米障碍，跳高改为 1.6 格（0.8 米）。
 - RED：11 项运动测试出现 12 处断言失败，无测试错误；旧跳高约 1.5007 米，
@@ -92,7 +92,7 @@
 
 - 对应变更：同一修复分支上的后续纠正。用户明确跳高为 1.6 米；
   玩家添加 `@export var max_jump_height: float = 1.6`，规则按实例传入高度计算初速度。
-  当前配置与验收见 [玩家规格](../features/002-player-and-inventory.md)。
+  当前配置与验收见 [玩家规格](../features/prealpha-1/002-player-and-inventory.md)。
 - RED：旧实现的 11 项运动测试出现 3 处断言失败，无测试错误；
   实际仍约 0.8006 米，且不存在可在编辑器调整并存储的跳高属性。
 - GREEN：验证导出与存储标志、默认高度和修改为 0.4 米后的实际跳跃；

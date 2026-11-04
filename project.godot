@@ -45,6 +45,10 @@ settings/test/test_lookup_folder="tests"
 
 [input]
 
+lock_belt_path={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":67)]
+}
 select_miner={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":52)]

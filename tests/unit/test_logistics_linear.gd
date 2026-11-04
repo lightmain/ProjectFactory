@@ -52,15 +52,46 @@ func test_production_is_quantized_without_resetting_grid_on_edits_or_queries() -
 	assert_int(_logistics.ore_count(Vector3i.ZERO)).is_equal(16)
 
 
-func test_busy_belt_direction_change_fails_without_moving_ore_backwards() -> void:
+func test_busy_belt_rotation_preserves_ores_and_rotates_their_path_at_the_boundary() -> void:
 	_place(Vector3i.LEFT, VoxelWorldData.Block.MINER)
 	_place(Vector3i.ZERO, VoxelWorldData.Block.BELT)
 	_logistics.advance(1.0)
 	var before: LogisticsOre = _logistics.belt_ores(Vector3i.ZERO)[0]
-	assert_bool(_logistics.set_direction(Vector3i.ZERO, Vector3i.BACK)).is_false()
-	assert_bool(_logistics.set_direction(Vector3i.ZERO, Vector3i.RIGHT)).is_true()
-	assert_vector(_logistics.direction_at(Vector3i.ZERO)).is_equal(Vector3i.RIGHT)
+	var count: int = _logistics.total_ore()
+	assert_bool(_logistics.set_direction(Vector3i.ZERO, Vector3i.BACK)).is_true()
+	assert_vector(_logistics.direction_at(Vector3i.ZERO)).is_equal(Vector3i.BACK)
 	assert_float(_logistics.belt_ores(Vector3i.ZERO)[0].progress).is_equal(before.progress)
+	_logistics.advance(STEP)
+	var after: LogisticsOre = _logistics.belt_ores(Vector3i.ZERO)[0]
+	assert_int(after.id).is_equal(before.id)
+	assert_vector(after.incoming_direction).is_equal(Vector3i.BACK)
+	assert_float(after.progress).is_greater_equal(before.progress)
+	assert_int(_logistics.ore_count(Vector3i.ZERO)).is_equal(2)
+	assert_int(_logistics.total_ore()).is_greater_equal(count)
+
+
+func test_connecting_a_busy_rotated_belt_waits_for_an_existing_occupied_input() -> void:
+	_logistics.configure_miners(0.1, 1)
+	_place(Vector3i.LEFT, VoxelWorldData.Block.MINER)
+	_place(Vector3i.ZERO, VoxelWorldData.Block.BELT)
+	_logistics.advance(1.0)
+	_place(Vector3i.BACK, VoxelWorldData.Block.BELT, Vector3i.RIGHT)
+	_place(Vector3i(-1, 0, 1), VoxelWorldData.Block.MINER)
+	_place(Vector3i(0, 0, 2), VoxelWorldData.Block.CHEST, Vector3i.BACK)
+	_logistics.advance(0.1)
+	_world.break_block(Vector3i(-1, 0, 1))
+	var start_ore: LogisticsOre = _logistics.belt_ores(Vector3i.ZERO)[0]
+	_world.break_block(Vector3i.LEFT)
+	var total: int = _logistics.total_ore()
+	assert_bool(_logistics.set_direction(Vector3i.ZERO, Vector3i.BACK)).is_true()
+	assert_bool(_logistics.set_direction(Vector3i.BACK, Vector3i.BACK)).is_true()
+	_logistics.advance(STEP)
+	assert_int(_logistics.total_ore()).is_equal(total)
+	assert_float(_logistics.belt_ores(Vector3i.ZERO)[0].progress).is_greater_equal(start_ore.progress)
+	assert_int(_logistics.ore_count(Vector3i.ZERO)).is_equal(2)
+	_logistics.advance(3.0)
+	assert_int(_logistics.total_ore()).is_equal(total)
+	assert_int(_logistics.ore_count(Vector3i(0, 0, 2))).is_equal(total)
 
 
 func test_boundary_edit_flush_cannot_relay_new_chest_inventory_twice() -> void:

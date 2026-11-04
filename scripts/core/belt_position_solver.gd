@@ -39,6 +39,11 @@ func advance(
 		if heads[index] < 0 or target < 0 or tails[target] < 0:
 			continue
 		if ores[tails[target]].incoming_direction == topology.machines[index].settled_direction:
+			# An edited connection may join two occupied ends. Wait for its
+			# initial gap to open rather than pulling the upstream ore back.
+			# Transfer already requires the downstream tail to reach 0.5.
+			if ores[heads[index]].progress > ores[tails[target]].progress + 0.5 + 1e-9:
+				continue
 			leaders[heads[index]] = tails[target]
 			weights[heads[index]] = 0.5
 	var positions: Array[float] = solve(desired, leaders, weights)
