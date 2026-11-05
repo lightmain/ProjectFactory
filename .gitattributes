@@ -4,3 +4,7 @@
 # Preserve upstream EOF spacing while retaining other whitespace checks.
 addons/** whitespace=-blank-at-eof
 .trae/skills/** whitespace=-blank-at-eof
+
+# Preserve upstream literal/template spacing in bundled documentation resources.
+docs/features/prealpha-1/007-save-system-draft/_shared/fonts/InstrumentSans-OFL.txt whitespace=-blank-at-eol
+docs/features/prealpha-1/007-save-system-draft/_shared/js/mermaid.min.js whitespace=-blank-at-eol

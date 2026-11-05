@@ -6,6 +6,7 @@ var _game: FactoryGame
 func before_test() -> void:
 	var scene: PackedScene = load("res://scenes/main.tscn") as PackedScene
 	_game = auto_free(scene.instantiate()) as FactoryGame
+	_game.game_config = _game.game_config.duplicate() as GameConfig
 	add_child(_game)
 	_game.player.set_controls_captured(true)
 	await get_tree().physics_frame
@@ -44,27 +45,28 @@ func test_hotbar_four_five_six_place_and_break_single_cell_machines() -> void:
 			assert_int(_game.world_data.get_block(Vector3i.ZERO)).is_equal(VoxelWorldData.Block.AIR)
 			_click(MOUSE_BUTTON_RIGHT)
 		assert_int(_game.world_data.get_block(Vector3i.ZERO)).is_equal(blocks[index])
-		assert_vector(_game.logistics_data.direction_at(Vector3i.ZERO)).is_equal(Vector3i.FORWARD)
+		assert_vector(_game.logistics_data.direction_at(Vector3i.ZERO)).is_equal(Vector3i.BACK)
 		_click(MOUSE_BUTTON_LEFT)
 		assert_int(_game.world_data.get_block(Vector3i.ZERO)).is_equal(VoxelWorldData.Block.AIR)
 		assert_int(_game.logistics_data.machine_cells().size()).is_equal(0)
 
 
-func test_r_rotates_placement_clockwise_and_selection_resets_rotation() -> void:
+func test_r_rotates_world_placement_and_tool_selection_preserves_rotation() -> void:
 	_key(KEY_4)
 	_key(KEY_R)
 	_click(MOUSE_BUTTON_RIGHT)
-	assert_vector(_game.logistics_data.direction_at(Vector3i.ZERO)).is_equal(Vector3i.RIGHT)
+	assert_vector(_game.logistics_data.direction_at(Vector3i.ZERO)).is_equal(Vector3i.LEFT)
 	_click(MOUSE_BUTTON_LEFT)
 	_key(KEY_5)
 	_click(MOUSE_BUTTON_RIGHT)
 	_click(MOUSE_BUTTON_RIGHT)
-	assert_vector(_game.logistics_data.direction_at(Vector3i.ZERO)).is_equal(Vector3i.FORWARD)
+	assert_vector(_game.logistics_data.direction_at(Vector3i.ZERO)).is_equal(Vector3i.LEFT)
 
 
-func test_hidden_world_keeps_producing_and_custom_exports_reach_the_miner() -> void:
+func test_hidden_world_keeps_producing_and_custom_config_reaches_the_miner() -> void:
 	_game.set_physics_process(false)
-	_game.logistics_data.bind_world(_game.world_data, 0.2, 3)
+	_game.game_config.mining_interval = 0.2
+	_game.game_config.mining_amount = 3
 	_game.world_data.place_block(Vector3i.ZERO, VoxelWorldData.Block.MINER)
 	_game.logistics_data.set_direction(Vector3i.ZERO, Vector3i.RIGHT)
 	_game.world_data.place_block(Vector3i.RIGHT, VoxelWorldData.Block.CHEST)
@@ -85,14 +87,14 @@ func test_hidden_world_keeps_producing_and_custom_exports_reach_the_miner() -> v
 
 func test_culled_and_deleted_logistics_view_do_not_stop_the_factory() -> void:
 	_game.world_data.place_block(Vector3i.ZERO, VoxelWorldData.Block.MINER)
-	_game.logistics_view.render_distance = 0.1
+	_game.game_config.ore_render_distance = 0.1
 	await get_tree().process_frame
 	await get_tree().process_frame
-	assert_int(_game.logistics_view.get_child_count()).is_equal(0)
-	_game.logistics_view.render_distance = 20.0
+	assert_int(_game.logistics_view.find_children("Machine_*", "Node3D", false, false).size()).is_equal(0)
+	_game.game_config.ore_render_distance = 20.0
 	await get_tree().process_frame
 	await get_tree().process_frame
-	assert_int(_game.logistics_view.get_child_count()).is_equal(1)
+	assert_int(_game.logistics_view.find_children("Machine_*", "Node3D", false, false).size()).is_equal(1)
 	_game.logistics_view.free()
 	for frame: int in range(65):
 		await get_tree().physics_frame
@@ -109,7 +111,7 @@ func test_inventory_blocks_machine_selection_rotation_and_placement() -> void:
 	assert_int(_game.world_data.get_block(Vector3i.ZERO)).is_equal(VoxelWorldData.Block.AIR)
 	_key(KEY_I)
 	_click(MOUSE_BUTTON_RIGHT)
-	assert_vector(_game.logistics_data.direction_at(Vector3i.ZERO)).is_equal(Vector3i.FORWARD)
+	assert_vector(_game.logistics_data.direction_at(Vector3i.ZERO)).is_equal(Vector3i.BACK)
 
 
 func test_machine_placement_respects_player_body_and_real_collision() -> void:
@@ -129,13 +131,14 @@ func test_machine_placement_respects_player_body_and_real_collision() -> void:
 	assert_float(Vector3(hit["position"]).y).is_equal_approx(0.5, 0.001)
 
 
-func test_main_scene_exports_configure_new_miners() -> void:
+func test_main_scene_config_resource_configures_new_miners() -> void:
 	var scene: PackedScene = load("res://scenes/main.tscn") as PackedScene
 	var configured: FactoryGame = auto_free(scene.instantiate()) as FactoryGame
-	assert_float(configured.mining_interval).is_equal(1.0)
-	assert_int(configured.mining_amount).is_equal(1)
-	configured.mining_interval = 0.25
-	configured.mining_amount = 5
+	configured.game_config = configured.game_config.duplicate() as GameConfig
+	assert_float(configured.game_config.mining_interval).is_equal(1.0)
+	assert_int(configured.game_config.mining_amount).is_equal(1)
+	configured.game_config.mining_interval = 0.25
+	configured.game_config.mining_amount = 5
 	add_child(configured)
 	configured.set_physics_process(false)
 	configured.world_data.place_block(Vector3i.ZERO, VoxelWorldData.Block.MINER)
@@ -144,19 +147,69 @@ func test_main_scene_exports_configure_new_miners() -> void:
 	configured.player.set_controls_captured(false)
 
 
-func test_changed_exports_only_affect_miners_placed_after_the_change() -> void:
+func test_main_scene_references_persisted_game_config() -> void:
+	var config: GameConfig = load("res://config/game_config.tres") as GameConfig
+	assert_object(config).is_not_null()
+	if config == null:
+		return
+	var scene: PackedScene = load("res://scenes/main.tscn") as PackedScene
+	var configured: FactoryGame = auto_free(scene.instantiate()) as FactoryGame
+	assert_object(configured.game_config).is_same(config)
+	assert_float(config.ore_render_distance).is_equal(12.0)
+	assert_float(config.mining_interval).is_equal(1.0)
+	assert_int(config.mining_amount).is_equal(1)
+
+
+func test_changed_config_only_affects_miners_placed_after_the_change() -> void:
 	_game.set_physics_process(false)
 	_key(KEY_4)
 	_click(MOUSE_BUTTON_RIGHT)
 	_game.logistics_data.advance(0.25)
-	_game.mining_interval = 0.25
-	_game.mining_amount = 5
+	_game.game_config.mining_interval = 0.25
+	_game.game_config.mining_amount = 5
 	_game.player.camera.look_at(Vector3(0.75, 0.0, 0.25), Vector3.UP)
 	_click(MOUSE_BUTTON_RIGHT)
 	assert_int(_game.world_data.get_block(Vector3i(1, 0, 0))).is_equal(VoxelWorldData.Block.MINER)
 	_game.logistics_data.advance(0.75)
 	assert_int(_game.logistics_data.ore_count(Vector3i.ZERO)).is_equal(1)
 	assert_int(_game.logistics_data.ore_count(Vector3i(1, 0, 0))).is_equal(15)
+
+
+func test_distance_boundary_is_inclusive_and_invalid_distance_hides_decorations() -> void:
+	_game.player.set_physics_process(false)
+	_game.set_physics_process(false)
+	_game.world_data.place_block(Vector3i.ZERO, VoxelWorldData.Block.MINER)
+	_game.logistics_data.advance(1.0)
+	_game.player.camera.global_position = VoxelWorldData.cell_center(Vector3i.ZERO) + Vector3.UP * 2.0
+	_game.game_config.ore_render_distance = 2.0
+	_game.logistics_view.refresh_from_data()
+	assert_int(_game.logistics_view.find_children("Machine_*", "Node3D", false, false).size()).is_equal(1)
+	for distance: float in [1.99, 0.0, -2.0, INF, NAN]:
+		_game.game_config.ore_render_distance = distance
+		_game.logistics_view.refresh_from_data()
+		assert_int(_game.logistics_view.find_children("Machine_*", "Node3D", false, false).size()).is_equal(0)
+		assert_int(_game.logistics_data.ore_count(Vector3i.ZERO)).is_equal(1)
+
+
+func test_copied_config_does_not_change_the_shared_asset() -> void:
+	_game.game_config.ore_render_distance = 2.0
+	_game.game_config.mining_interval = 0.5
+	_game.game_config.mining_amount = 3
+	var saved: GameConfig = load("res://config/game_config.tres") as GameConfig
+	assert_float(saved.ore_render_distance).is_equal(12.0)
+	assert_float(saved.mining_interval).is_equal(1.0)
+	assert_int(saved.mining_amount).is_equal(1)
+
+
+func test_cleared_config_reference_uses_independent_defaults() -> void:
+	var scene: PackedScene = load("res://scenes/main.tscn") as PackedScene
+	var configured: FactoryGame = auto_free(scene.instantiate()) as FactoryGame
+	configured.game_config = null
+	add_child(configured)
+	assert_object(configured.game_config).is_not_null()
+	assert_float(configured.logistics_view.render_distance).is_equal(12.0)
+	assert_object(configured.game_config).is_not_same(_game.game_config)
+	configured.player.set_controls_captured(false)
 
 
 func test_belt_physics_and_target_outline_follow_the_thin_top() -> void:

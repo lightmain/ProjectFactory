@@ -155,6 +155,122 @@ func machine_cells() -> Array[Vector3i]:
 	return _topology.cells.duplicate()
 
 
+func save_state() -> Dictionary:
+	var machines: Array[Dictionary] = []
+	for index: int in range(_topology.machines.size()):
+		var row: Dictionary = _topology.machines[index].save_state()
+		row["cell"] = _topology.cells[index]
+		machines.append(row)
+	return {
+		"time": _time, "compensation": _time_compensation, "tick": _tick,
+		"flushed": _flushed_tick, "next_id": _batch.next_ore_id,
+		"interval": _mining_interval, "amount": _mining_amount,
+		"dirty": _topology.dirty, "machines": machines,
+		"outgoing": _topology.outgoing.duplicate(), "inputs": _topology.inputs.duplicate(),
+	}
+
+
+func restore_state(state: Dictionary) -> bool:
+	if _world == null or not SnapshotValues.number(state.get("time"), 0.0, 100000000.0) or (
+		not SnapshotValues.number(state.get("compensation"), -0.00001, 0.00001)
+		or not SnapshotValues.integer(state.get("tick"), 0, 6000000000)
+		or not SnapshotValues.integer(state.get("flushed"), -1, 6000000000)
+		or not SnapshotValues.integer(state.get("next_id"), 1, SnapshotValues.MAX_INTEGER)
+		or not state.get("interval") is float
+		or not SnapshotValues.integer(state.get("amount"), SnapshotValues.MIN_INTEGER, SnapshotValues.MAX_INTEGER)
+		or not state.get("dirty") is bool or not state.get("machines") is Array
+		or not state.get("inputs") is Array or not state.get("outgoing") is Array
+	):
+		return false
+	var time: float = state["time"]
+	var tick: int = state["tick"]
+	var flushed: int = state["flushed"]
+	if tick != int(floorf((time + TIME_EPSILON) / LOGIC_STEP)) or flushed > tick:
+		return false
+	var rows: Array = state["machines"]
+	if rows.size() != _topology.machines.size():
+		return false
+	var topology: LogisticsTopology = LogisticsTopology.new()
+	var ids: Dictionary[int, bool] = {}
+	for value: Variant in rows:
+		if not value is Dictionary:
+			return false
+		var row: Dictionary = value
+		if not row.get("cell") is Vector3i:
+			return false
+		var cell: Vector3i = row["cell"]
+		var machine: LogisticsMachine = LogisticsMachine.decode(row, time, tick)
+		if machine == null or topology.index_at(cell) >= 0 or (
+			not _world.is_in_bounds(cell) or _world.get_block(cell) != machine.block
+		):
+			return false
+		for ore: LogisticsOre in machine.belt_ores:
+			if ids.has(ore.id) or ore.id >= state["next_id"]:
+				return false
+			ids[ore.id] = true
+		topology.add(cell, machine)
+	var outgoing: Array = state["outgoing"]
+	var inputs: Array = state["inputs"]
+	if outgoing.size() != rows.size() or inputs.size() != rows.size() * 3:
+		return false
+	for value: Variant in outgoing + inputs:
+		if not SnapshotValues.integer(value, -1, rows.size() - 1):
+			return false
+	topology.outgoing.assign(outgoing)
+	topology.inputs.assign(inputs)
+	for target: int in range(rows.size()):
+		var machine: LogisticsMachine = topology.machines[target]
+		var facing: Vector3i = machine.settled_direction
+		var side: Vector3i = Vector3i(-facing.z, 0, facing.x)
+		var ports: Array[Vector3i] = [facing, side, -side]
+		for port: int in range(3):
+			var source: int = topology.inputs[target * 3 + port]
+			if source < 0:
+				continue
+			if machine.block == VoxelWorldData.Block.MINER or (
+				machine.block == VoxelWorldData.Block.CHEST and port != 0
+			) or topology.outgoing[source] != target or (
+				topology.cells[source] != topology.cells[target] - ports[port]
+				or topology.machines[source].settled_direction != ports[port]
+			):
+				return false
+		var destination: int = topology.outgoing[target]
+		if destination >= 0 and target not in topology.inputs.slice(destination * 3, destination * 3 + 3):
+			return false
+	topology.dirty = state["dirty"]
+	if not topology.dirty:
+		for machine: LogisticsMachine in topology.machines:
+			if machine.direction != machine.settled_direction:
+				return false
+		# A settled graph must contain every legal edge, not merely valid listed edges.
+		topology.rebuild()
+		if topology.inputs != inputs or topology.outgoing != outgoing:
+			return false
+	var queues: Array[LogisticsOreQueue] = []
+	for machine: LogisticsMachine in topology.machines:
+		var queue: LogisticsOreQueue = LogisticsOreQueue.new()
+		queue.ores = machine.belt_ores
+		queues.append(queue)
+	var solver: BeltPositionSolver = BeltPositionSolver.new()
+	if not solver.is_feasible(topology, queues):
+		return false
+	_topology = topology
+	_time = time
+	_time_compensation = state["compensation"]
+	_tick = tick
+	_flushed_tick = state["flushed"]
+	_batch.next_ore_id = state["next_id"]
+	_mining_interval = state["interval"]
+	_mining_amount = state["amount"]
+	_sample_queues.clear()
+	for machine: LogisticsMachine in _topology.machines:
+		_sample_queues.append(LogisticsOreQueue.new())
+	_version += 1
+	_sample_version = -1
+	reset.emit()
+	return true
+
+
 func work_stats() -> Dictionary[String, int]:
 	return {
 		"advance": _work_count, "batches": _batch_count,

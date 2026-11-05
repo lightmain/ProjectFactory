@@ -14,6 +14,7 @@ var _active_style: StyleBoxFlat
 var _idle_style: StyleBoxFlat
 var _notice: Label
 var _notice_seconds: float = 0.0
+var _free_view: bool = false
 
 
 func _ready() -> void:
@@ -31,7 +32,7 @@ func _ready() -> void:
 	_hint.offset_left = 28
 	_hint.offset_top = -64
 	_hint.offset_bottom = -20
-	_hint.text = "WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nI  Inventory    ESC  Cursor    1 - 6  Build tool    R  Rotate"
+	_hint.text = "WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nI  Inventory    ESC  Pause    1 - 6  Build tool    R  Rotate"
 	_notice = _label(Vector2.ZERO, 19, Color("#ffaaa3"))
 	_notice.add_theme_font_override("font", localized_font)
 	_notice.name = "BuildNotice"
@@ -45,7 +46,7 @@ func _ready() -> void:
 	var hotbar: HBoxContainer = HBoxContainer.new()
 	hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hotbar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	hotbar.position = Vector2(-362, -104)
+	hotbar.position = Vector2(-362, -120)
 	hotbar.add_theme_constant_override("separation", 8)
 	add_child(hotbar)
 	_active_style = _slot_style(Color("#263939"), Color("#b5ddb1"), 2)
@@ -77,10 +78,18 @@ func show_build_notice(message: String) -> void:
 func update_status(
 	block: int, hit: VoxelHit, world: VoxelWorldData, captured: bool,
 	logistics: LogisticsData = null, direction: Vector3i = Vector3i.ZERO,
-	belt_active: bool = false, locked_count: int = 0
+	belt_active: bool = false, locked_count: int = 0, free_view: bool = false
 ) -> void:
+	if _free_view != free_view:
+		_free_view = free_view
+		queue_redraw()
+	_hint.text = (
+		"WASD  Camera    WHEEL  Zoom    Hold MMB  Orbit center\nTAB  First person    LMB / RMB  Build    I  Inventory    ESC  Pause    R  Rotate"
+		if free_view else
+		"WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nTAB  Free camera    I  Inventory    ESC  Pause    1 - 6  Build tool    R  Rotate"
+	)
 	if hit == null:
-		_target.text = "Aim at a block within 5 m"
+		_target.text = "Point at a block within 40 m" if free_view else "Aim at a block within 5 m"
 	else:
 		var cell: Vector3i = hit.cell
 		_target.text = "%s  /  [%d, %d, %d]  /  %.1f m" % [
@@ -108,6 +117,8 @@ func update_status(
 
 
 func _draw() -> void:
+	if _free_view:
+		return
 	var center: Vector2 = size * 0.5
 	draw_line(center - Vector2(7, 0), center + Vector2(7, 0), Color("#edf3f3"), 2.0)
 	draw_line(center - Vector2(0, 7), center + Vector2(0, 7), Color("#edf3f3"), 2.0)

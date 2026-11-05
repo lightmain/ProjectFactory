@@ -2,13 +2,15 @@ class_name LogisticsView
 extends Node3D
 ## Disposable nearby decorations. Removing this view never changes factory state.
 
-@export var render_distance: float = 12.0
+## Injected by FactoryGame from GameConfig; zero disables nearby decorations.
+var render_distance: float = 0.0
+
+var item_render_pool: ItemRenderPool
 
 var _logistics: LogisticsData
 var _world: VoxelWorldData
 var _camera: Camera3D
 var _visuals: Dictionary[Vector3i, Node3D] = {}
-var _ore_visuals: Dictionary[int, MeshInstance3D] = {}
 var _ore_mesh: SphereMesh
 var _ore_material: StandardMaterial3D
 var _output_material: StandardMaterial3D
@@ -26,13 +28,22 @@ func bind_logistics(logistics: LogisticsData, world: VoxelWorldData, camera: Cam
 	_logistics.reset.connect(_clear)
 	_output_material = _material(Color("#c9f0a1"))
 	_input_material = _material(Color("#81cbdc"))
-	_ore_material = _material(Color("#d37747"))
-	_ore_mesh = SphereMesh.new()
-	_ore_mesh.radius = 0.042
-	_ore_mesh.height = 0.075
-	_ore_mesh.radial_segments = 8
-	_ore_mesh.rings = 4
+	if item_render_pool == null:
+		item_render_pool = ItemRenderPool.new()
+		item_render_pool.name = "ItemRenderPool"
+		add_child(item_render_pool)
+		_ore_material = _material(Color("#d37747"))
+		_ore_mesh = SphereMesh.new()
+		_ore_mesh.radius = 0.042
+		_ore_mesh.height = 0.075
+		_ore_mesh.radial_segments = 8
+		_ore_mesh.rings = 4
+		item_render_pool.register_visual(&"iron_ore", _ore_mesh, _ore_material)
 	_clear()
+
+
+func set_camera(camera: Camera3D) -> void:
+	_camera = camera
 
 
 func _process(_delta: float) -> void:
@@ -45,13 +56,13 @@ func _process(_delta: float) -> void:
 func refresh_from_data(frame_offset: float = 0.0) -> void:
 	if _logistics == null or not is_visible_in_tree():
 		return
-	var visible_ores: Dictionary[int, bool] = {}
+	item_render_pool.begin_frame()
 	var belt_samples: Array[LogisticsOreQueue] = _logistics.sample_belts(
 		frame_offset
 	)
 	for sample: LogisticsOreQueue in belt_samples:
 		var cell: Vector3i = sample.cell
-		var nearby: bool = _camera.global_position.distance_squared_to(
+		var nearby: bool = render_distance > 0.0 and _camera.global_position.distance_squared_to(
 			VoxelWorldData.cell_center(cell)
 		) <= render_distance * render_distance
 		if not nearby:
@@ -62,33 +73,25 @@ func refresh_from_data(frame_offset: float = 0.0) -> void:
 		var visual: Node3D = _visuals[cell]
 		if _world.get_block(cell) == VoxelWorldData.Block.BELT:
 			for ore: LogisticsOre in sample.ores:
-				visible_ores[ore.id] = true
-				if not _ore_visuals.has(ore.id):
-					var ore_visual: MeshInstance3D = _create_ore("BeltOre%d" % ore.id)
-					add_child(ore_visual)
-					_ore_visuals[ore.id] = ore_visual
-				_ore_visuals[ore.id].global_position = (
+				item_render_pool.submit(ore.id, &"iron_ore", cell, Transform3D(
+					Basis.IDENTITY,
 					ore.surface_position(cell, sample.direction) + Vector3.UP * 0.04
-				)
+				))
 			continue
 		var count: int = _logistics.ore_count(cell)
 		var first: MeshInstance3D = visual.get_node("Ore1") as MeshInstance3D
 		var second: MeshInstance3D = visual.get_node("Ore2") as MeshInstance3D
 		first.visible = count > 0
 		second.visible = count > 1
-	for ore_id: int in _ore_visuals.keys():
-		if not visible_ores.has(ore_id):
-			_ore_visuals[ore_id].free()
-			_ore_visuals.erase(ore_id)
+	item_render_pool.end_frame()
 
 
 func _clear() -> void:
 	for visual: Node3D in _visuals.values():
 		visual.free()
 	_visuals.clear()
-	for ore: MeshInstance3D in _ore_visuals.values():
-		ore.free()
-	_ore_visuals.clear()
+	if item_render_pool != null:
+		item_render_pool.clear()
 
 
 func _invalidate_cell(cell: Vector3i) -> void:

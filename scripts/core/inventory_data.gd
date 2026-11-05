@@ -31,6 +31,62 @@ func get_slot(index: int) -> ItemStack:
 	return _slots[index].snapshot()
 
 
+func save_state() -> Array:
+	var result: Array = []
+	for stack: ItemStack in _slots:
+		result.append(null if stack == null else {
+			"id": String(stack.definition.item_id), "name": stack.definition.display_name,
+			"description": stack.definition.description, "max": stack.definition.max_stack,
+			"quantity": stack.quantity,
+		})
+	return result
+
+
+func restore_state(rows: Array) -> bool:
+	if rows.size() != DEFAULT_CAPACITY:
+		return false
+	var slots: Array[ItemStack] = []
+	var definitions: Dictionary[String, ItemDefinition] = {}
+	for value: Variant in rows:
+		if value == null:
+			slots.append(null)
+			continue
+		if not value is Dictionary:
+			return false
+		var row: Dictionary = value
+		if not row.get("id") is String or not row.get("name") is String or (
+			not row.get("description") is String
+			or not SnapshotValues.integer(row.get("max"), 1, 1000000)
+			or not SnapshotValues.integer(row.get("quantity"), 1, 1000000)
+		):
+			return false
+		var item_id: String = row["id"]
+		var display_name: String = row["name"]
+		var description: String = row["description"]
+		var max_stack: int = row["max"]
+		var quantity: int = row["quantity"]
+		if item_id.is_empty() or item_id.length() > 128 or display_name.length() > 256 or (
+			description.length() > 4096 or quantity > max_stack
+		):
+			return false
+		var definition: ItemDefinition = definitions.get(item_id)
+		if definition == null:
+			definition = ItemDefinition.new()
+			definition.item_id = StringName(item_id)
+			definition.display_name = display_name
+			definition.description = description
+			definition.max_stack = max_stack
+			definitions[item_id] = definition
+		elif definition.display_name != display_name or definition.description != description or (
+			definition.max_stack != max_stack
+		):
+			return false
+		slots.append(ItemStack.new(definition, quantity))
+	_slots = slots
+	changed.emit()
+	return true
+
+
 func add_item(definition: ItemDefinition, amount: int) -> int:
 	## Returns the amount not accepted. Invalid operations never emit changed.
 	var remaining: int = maxi(0, amount)

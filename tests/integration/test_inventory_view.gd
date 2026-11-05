@@ -56,7 +56,7 @@ func test_open_inventory_blocks_clicks_movement_and_view_rotation() -> void:
 		await get_tree().physics_frame
 	assert_float(_game.player.position.z).is_equal_approx(_game.player.spawn_position.z, 0.0001)
 	assert_float(_game.player.position.y).is_less(0.02)
-	assert_int(_game.world_data.block_count()).is_equal(4096)
+	assert_int(_game.world_data.block_count()).is_equal(64 * 64 * 4)
 
 
 func test_selection_and_data_changes_refresh_view_and_close_button() -> void:

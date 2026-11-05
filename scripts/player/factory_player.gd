@@ -10,6 +10,11 @@ signal respawn_requested
 signal inventory_requested
 signal focus_lost
 signal controls_capture_changed(captured: bool)
+signal view_mode_requested
+signal camera_input_requested(event: InputEvent)
+signal free_cancel_requested
+signal focus_restored
+signal pause_requested
 
 const BODY_RADIUS: float = 0.28
 const BODY_HEIGHT: float = 1.75
@@ -27,26 +32,52 @@ var _captured: bool = false
 var _inventory_open: bool = false
 var _jump_requires_release: bool = false
 var _jump_block_frames: int = 0
+var _free_view: bool = false
+var _free_rotating: bool = false
+var _focused: bool = true
+var _gravity: float = 0.0
+var body_visual: MeshInstance3D
+var _session_paused: bool = false
 
 
 func _ready() -> void:
 	spawn_position = position
+	body_visual = MeshInstance3D.new()
+	body_visual.name = "BodyVisual"
+	var mesh: BoxMesh = BoxMesh.new()
+	mesh.size = Vector3(BODY_RADIUS * 2, BODY_HEIGHT, BODY_RADIUS * 2)
+	body_visual.mesh = mesh
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.albedo_color = Color("#ff982e")
+	body_visual.material_override = material
+	body_visual.position.y = BODY_HEIGHT * 0.5
+	body_visual.hide()
+	add_child(body_visual)
 	set_controls_captured(true)
 
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_focused = false
+		_free_rotating = false
 		set_controls_captured(false)
 		focus_lost.emit()
+	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		_focused = true
+		focus_restored.emit()
 
 
 func _exit_tree() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
+func configure_gravity(gravity: float) -> void:
+	_gravity = gravity if is_finite(gravity) and gravity >= 0.0 else 0.0
+
+
 func set_controls_captured(captured: bool) -> void:
 	var previous: bool = _captured
-	_captured = captured and not _inventory_open
+	_captured = captured and not _inventory_open and not _free_view and not _session_paused
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _captured else Input.MOUSE_MODE_VISIBLE
 	if previous != _captured:
 		controls_capture_changed.emit(_captured)
@@ -56,8 +87,31 @@ func controls_captured() -> bool:
 	return _captured
 
 
+func controls_enabled() -> bool:
+	return not _session_paused and not _inventory_open and (_captured or (_free_view and _focused))
+
+
+func set_session_paused(paused: bool) -> void:
+	_session_paused = paused
+	_free_rotating = false
+	_jump_requires_release = true
+	_jump_block_frames = 2
+	if paused:
+		set_controls_captured(false)
+
+
+func set_free_view(enabled: bool) -> void:
+	_free_view = enabled
+	_free_rotating = false
+	body_visual.visible = enabled
+	_jump_requires_release = true
+	_jump_block_frames = 2
+	set_controls_captured(not enabled)
+
+
 func set_inventory_open(open: bool) -> void:
 	_inventory_open = open
+	_free_rotating = false
 	_jump_requires_release = true
 	# Idle input can become just_pressed on the following physics tick.
 	_jump_block_frames = 2
@@ -93,6 +147,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func handle_input(event: InputEvent) -> void:
 	# Public input boundary also permits deterministic headless integration tests.
+	if _session_paused:
+		return
 	if event.is_action_pressed("toggle_inventory") and not event.is_echo():
 		inventory_requested.emit()
 		return
@@ -100,8 +156,28 @@ func handle_input(event: InputEvent) -> void:
 		if event.is_action_pressed("toggle_mouse") and not event.is_echo():
 			inventory_requested.emit()
 		return
-	if event.is_action_pressed("toggle_mouse"):
-		set_controls_captured(not _captured)
+	if event.is_action_pressed("toggle_mouse") and not event.is_echo():
+		_free_rotating = false
+		camera_input_requested.emit(event)
+		free_cancel_requested.emit()
+		pause_requested.emit()
+		return
+	if event.is_action_pressed("toggle_view") and not event.is_echo():
+		view_mode_requested.emit()
+		return
+	if _free_view:
+		if not _focused:
+			return
+		camera_input_requested.emit(event)
+		if event is InputEventMouseMotion:
+			return
+		if event is InputEventMouseButton:
+			var free_button: InputEventMouseButton = event as InputEventMouseButton
+			if free_button.button_index == MOUSE_BUTTON_MIDDLE:
+				_free_rotating = free_button.pressed
+				return
+		if not _free_rotating:
+			_handle_build_input(event)
 		return
 	if not _captured:
 		if event is InputEventMouseButton:
@@ -115,7 +191,12 @@ func handle_input(event: InputEvent) -> void:
 		camera.rotation.x = clampf(
 			camera.rotation.x - motion.relative.y * mouse_sensitivity, -1.5, 1.5
 		)
-	elif event.is_action_pressed("break_block"):
+	else:
+		_handle_build_input(event)
+
+
+func _handle_build_input(event: InputEvent) -> void:
+	if event.is_action_pressed("break_block"):
 		break_requested.emit()
 	elif event.is_action_pressed("place_block"):
 		place_requested.emit()
@@ -149,7 +230,7 @@ func _physics_process(delta: float) -> void:
 	if _captured:
 		movement = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		if grounded and not _jump_requires_release and Input.is_action_just_pressed("jump"):
-			velocity.y = PlayerMotionRules.jump_speed(max_jump_height)
+			velocity.y = PlayerMotionRules.jump_speed(max_jump_height, _gravity)
 			grounded = false
 	var direction: Vector3 = Basis(Vector3.UP, camera.rotation.y) * Vector3(movement.x, 0, movement.y)
 	velocity.x = direction.x * move_speed
@@ -158,7 +239,7 @@ func _physics_process(delta: float) -> void:
 	var stepped: bool = false
 	if grounded and velocity.y <= 0.0:
 		stepped = _try_step(horizontal_velocity * delta)
-	var vertical: Vector2 = PlayerMotionRules.vertical_step(velocity.y, delta)
+	var vertical: Vector2 = PlayerMotionRules.vertical_step(velocity.y, delta, _gravity)
 	velocity.y = vertical.x / delta
 	if stepped:
 		# The sweep consumed this tick's horizontal displacement.

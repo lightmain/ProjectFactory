@@ -3,10 +3,10 @@
 
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
+from verification_project import copy_project
 
 TYPE_WARNINGS = (
     "untyped_declaration", "inferred_declaration", "unsafe_property_access",
@@ -20,19 +20,19 @@ def main() -> int:
     godot_bin = sys.argv[1]
     with tempfile.TemporaryDirectory(prefix="project-factory-types-") as temporary:
         check_root = Path(temporary)
-        for directory in ("addons", "scripts", "scenes", "assets"):
-            shutil.copytree(project_root / directory, check_root / directory)
-        shutil.copy2(project_root / "icon.svg", check_root / "icon.svg")
+        copy_project(project_root, check_root)
         configuration = (project_root / "project.godot").read_text(encoding="utf-8")
         for warning in TYPE_WARNINGS:
             configuration = configuration.replace(
                 f"gdscript/warnings/{warning}=1",
                 f"gdscript/warnings/{warning}=2",
             )
-        configuration = configuration.replace(
-            'run/main_scene="res://scenes/main.tscn"',
-            'run/main_scene="res://type_check.tscn"',
+        configuration, replacements = re.subn(
+            r"(?m)^run/main_scene=.*$",
+            'run/main_scene="res://type_check.tscn"', configuration,
         )
+        if replacements != 1:
+            raise ValueError("Expected exactly one application startup scene.")
         (check_root / "project.godot").write_text(configuration, encoding="utf-8")
         scripts = sorted((check_root / "scripts").rglob("*.gd"))
         preloads = ",\n".join(
@@ -50,7 +50,8 @@ def main() -> int:
             encoding="utf-8",
         )
         result = subprocess.run(
-            [godot_bin, "--headless", "--path", str(check_root), "--import", "type_check.tscn"],
+            [godot_bin, "--headless", "--log-file", str(check_root / "type_check.log"),
+             "--path", str(check_root), "--import", "type_check.tscn"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False,
         )
         print(result.stdout, end="")

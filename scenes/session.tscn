@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cmqjdb8kc1ll5"]
+
+[ext_resource type="Script" uid="uid://ce8owtftppfu" path="res://scripts/factory_session.gd" id="1_wfdo7"]
+
+[node name="FactorySession" type="Node" unique_id=1274192353]
+script = ExtResource("1_wfdo7")

@@ -2,10 +2,12 @@ extends GdUnitTestSuite
 
 var _game: FactoryGame
 var _original_physics_rate: int
+var _original_gravity: float
 
 
 func before_test() -> void:
 	_original_physics_rate = Engine.physics_ticks_per_second
+	_original_gravity = float(ProjectSettings.get_setting("physics/3d/default_gravity"))
 	var scene: PackedScene = load("res://scenes/main.tscn") as PackedScene
 	_game = auto_free(scene.instantiate()) as FactoryGame
 	add_child(_game)
@@ -20,6 +22,7 @@ func after_test() -> void:
 	Input.action_release("jump")
 	_game.player.set_controls_captured(false)
 	Engine.physics_ticks_per_second = _original_physics_rate
+	ProjectSettings.set_setting("physics/3d/default_gravity", _original_gravity)
 
 
 func _obstacle(size: Vector3, center: Vector3) -> void:
@@ -72,6 +75,28 @@ func _jump_peak(rate: int) -> float:
 
 
 func test_real_jump_peaks_at_one_point_six_metres() -> void:
+	for rate: int in [60, 120]:
+		assert_float(await _jump_peak(rate)).is_between(1.59, 1.601)
+
+
+func test_project_gravity_controls_real_fall_and_preserves_jump_height() -> void:
+	ProjectSettings.set_setting("physics/3d/default_gravity", 19.62)
+	_game.free()
+	var scene: PackedScene = load("res://scenes/main.tscn") as PackedScene
+	_game = auto_free(scene.instantiate()) as FactoryGame
+	add_child(_game)
+	_game.player.set_physics_process(false)
+	_game.player.respawn(Vector3(0.25, 4.0, 2.0))
+	var delta: float = 1.0 / float(Engine.physics_ticks_per_second)
+	_game.player._physics_process(delta)
+	assert_float(_game.player.position.y).is_equal_approx(
+		4.0 - 19.62 * delta * delta * 0.5, 0.000001
+	)
+	assert_float(_game.player.velocity.y).is_equal_approx(-19.62 * delta, 0.000001)
+	_game.player.respawn(Vector3(0.25, 0.01, 2.0))
+	_game.player.set_physics_process(true)
+	for frame: int in range(10):
+		await get_tree().physics_frame
 	for rate: int in [60, 120]:
 		assert_float(await _jump_peak(rate)).is_between(1.59, 1.601)
 

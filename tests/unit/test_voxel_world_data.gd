@@ -14,7 +14,7 @@ func test_cell_size_and_negative_coordinates() -> void:
 func test_flat_world_has_four_layers_and_air_above() -> void:
 	var world: VoxelWorldData = VoxelWorldData.new()
 	world.generate_flat()
-	assert_int(world.block_count()).is_equal(32 * 32 * 4)
+	assert_int(world.block_count()).is_equal(64 * 64 * 4)
 	assert_int(world.get_block(Vector3i(-16, -1, 15))).is_equal(VoxelWorldData.Block.GRASS)
 	assert_int(world.get_block(Vector3i(0, -2, 0))).is_equal(VoxelWorldData.Block.DIRT)
 	assert_int(world.get_block(Vector3i(0, -3, 0))).is_equal(VoxelWorldData.Block.STONE)
@@ -24,10 +24,10 @@ func test_flat_world_has_four_layers_and_air_above() -> void:
 
 func test_world_bounds_are_half_open() -> void:
 	var world: VoxelWorldData = VoxelWorldData.new()
-	assert_bool(world.is_in_bounds(Vector3i(-16, -4, -16))).is_true()
-	assert_bool(world.is_in_bounds(Vector3i(15, 15, 15))).is_true()
-	assert_bool(world.is_in_bounds(Vector3i(16, 0, 0))).is_false()
-	assert_bool(world.is_in_bounds(Vector3i(0, 16, 0))).is_false()
+	assert_bool(world.is_in_bounds(Vector3i(-32, -4, -32))).is_true()
+	assert_bool(world.is_in_bounds(Vector3i(31, 59, 31))).is_true()
+	assert_bool(world.is_in_bounds(Vector3i(32, 0, 0))).is_false()
+	assert_bool(world.is_in_bounds(Vector3i(0, 60, 0))).is_false()
 	assert_bool(world.is_in_bounds(Vector3i(0, -5, 0))).is_false()
 
 
@@ -38,7 +38,7 @@ func test_break_is_idempotent_and_preserves_bedrock() -> void:
 	assert_int(world.get_block(Vector3i(0, -1, 0))).is_equal(VoxelWorldData.Block.AIR)
 	assert_bool(world.break_block(Vector3i(0, -1, 0))).is_false()
 	assert_bool(world.break_block(Vector3i(0, -4, 0))).is_false()
-	assert_bool(world.break_block(Vector3i(16, -1, 0))).is_false()
+	assert_bool(world.break_block(Vector3i(32, -1, 0))).is_false()
 
 
 func test_place_rejects_occupied_outside_and_invalid_blocks() -> void:
@@ -46,7 +46,7 @@ func test_place_rejects_occupied_outside_and_invalid_blocks() -> void:
 	world.generate_flat()
 	assert_bool(world.place_block(Vector3i(0, 0, 0), VoxelWorldData.Block.STONE)).is_true()
 	assert_bool(world.place_block(Vector3i(0, 0, 0), VoxelWorldData.Block.DIRT)).is_false()
-	assert_bool(world.place_block(Vector3i(16, 0, 0), VoxelWorldData.Block.STONE)).is_false()
+	assert_bool(world.place_block(Vector3i(32, 0, 0), VoxelWorldData.Block.STONE)).is_false()
 	assert_bool(world.place_block(Vector3i(1, 0, 0), VoxelWorldData.Block.AIR)).is_false()
 	assert_bool(world.place_block(Vector3i(1, 0, 0), 99)).is_false()
 	assert_bool(world.place_block(Vector3i(1, 0, 0), VoxelWorldData.Block.BEDROCK)).is_false()
@@ -66,7 +66,7 @@ func test_regeneration_resets_player_edits() -> void:
 	world.break_block(Vector3i.ZERO + Vector3i.DOWN)
 	world.place_block(Vector3i.ZERO, VoxelWorldData.Block.STONE)
 	world.generate_flat()
-	assert_int(world.block_count()).is_equal(4096)
+	assert_int(world.block_count()).is_equal(64 * 64 * 4)
 	assert_int(world.get_block(Vector3i.ZERO)).is_equal(VoxelWorldData.Block.AIR)
 
 

@@ -9,6 +9,17 @@ var work: int = 0
 func advance(
 	topology: LogisticsTopology, queues: Array[LogisticsOreQueue], delta: float
 ) -> void:
+	_advance(topology, queues, delta, true)
+
+
+func is_feasible(topology: LogisticsTopology, queues: Array[LogisticsOreQueue]) -> bool:
+	## Check the entire settled graph without moving ores or triggering runtime assertions.
+	return _advance(topology, queues, 0.0, false)
+
+
+func _advance(
+	topology: LogisticsTopology, queues: Array[LogisticsOreQueue], delta: float, commit: bool
+) -> bool:
 	work = 0
 	var ores: Array[LogisticsOre] = []
 	var heads: Array[int] = []
@@ -49,8 +60,13 @@ func advance(
 	var positions: Array[float] = solve(desired, leaders, weights)
 	for index: int in range(ores.size()):
 		work += 1
-		assert(positions[index] >= ores[index].progress - 1e-9, "Infeasible belt state")
-		ores[index].progress = positions[index]
+		if not commit:
+			if positions[index] < ores[index].progress - LogisticsData.TIME_EPSILON:
+				return false
+		else:
+			assert(positions[index] >= ores[index].progress - LogisticsData.TIME_EPSILON, "Infeasible belt state")
+			ores[index].progress = positions[index]
+	return true
 
 
 func solve(
