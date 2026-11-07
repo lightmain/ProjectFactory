@@ -8,6 +8,7 @@ var _slots: Array[Label] = []
 var _slot_blocks: Array[int] = [
 	VoxelWorldData.Block.GRASS, VoxelWorldData.Block.DIRT, VoxelWorldData.Block.STONE,
 	VoxelWorldData.Block.MINER, VoxelWorldData.Block.BELT, VoxelWorldData.Block.CHEST,
+	VoxelWorldData.Block.STRUCTURE,
 ]
 var _build_hint: Label
 var _active_style: StyleBoxFlat
@@ -32,7 +33,7 @@ func _ready() -> void:
 	_hint.offset_left = 28
 	_hint.offset_top = -64
 	_hint.offset_bottom = -20
-	_hint.text = "WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nI  Inventory    ESC  Pause    1 - 6  Build tool    R  Rotate"
+	_hint.text = "WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nI  Inventory    ESC  Pause    1 - 7  Build tool    R  Rotate"
 	_notice = _label(Vector2.ZERO, 19, Color("#ffaaa3"))
 	_notice.add_theme_font_override("font", localized_font)
 	_notice.name = "BuildNotice"
@@ -46,12 +47,12 @@ func _ready() -> void:
 	var hotbar: HBoxContainer = HBoxContainer.new()
 	hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hotbar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	hotbar.position = Vector2(-362, -120)
+	hotbar.position = Vector2(-423, -120)
 	hotbar.add_theme_constant_override("separation", 8)
 	add_child(hotbar)
 	_active_style = _slot_style(Color("#263939"), Color("#b5ddb1"), 2)
 	_idle_style = _slot_style(Color("#1a242b"), Color("#435056"), 1)
-	for text: String in ["1  GRASS", "2  DIRT", "3  STONE", "4  MINER", "5  BELT", "6  CHEST"]:
+	for text: String in ["1  GRASS", "2  DIRT", "3  STONE", "4  MINER", "5  BELT", "6  CHEST", "7  3×3×3"]:
 		var slot: Label = Label.new()
 		slot.text = text
 		slot.custom_minimum_size = Vector2(114, 48)
@@ -86,7 +87,7 @@ func update_status(
 	_hint.text = (
 		"WASD  Camera    WHEEL  Zoom    Hold MMB  Orbit center\nTAB  First person    LMB / RMB  Build    I  Inventory    ESC  Pause    R  Rotate"
 		if free_view else
-		"WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nTAB  Free camera    I  Inventory    ESC  Pause    1 - 6  Build tool    R  Rotate"
+		"WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nTAB  Free camera    I  Inventory    ESC  Pause    1 - 7  Build tool    R  Rotate"
 	)
 	if hit == null:
 		_target.text = "Point at a block within 40 m" if free_view else "Aim at a block within 5 m"
@@ -108,6 +109,8 @@ func update_status(
 			"右键完成  /  C 锁定此前路径  /  左键取消  /  已锁定 %d 格" % locked_count
 			if belt_active else "右键选起点，再右键选终点  /  自动绕障  /  R 转向"
 		)
+	if block == VoxelWorldData.Block.STRUCTURE:
+		_build_hint.text = "3×3×3  /  R Rotate  /  RMB Place  /  LMB Break whole"
 	if not captured:
 		_target.text = "CURSOR RELEASED  /  Click to resume"
 	for index: int in range(_slots.size()):

@@ -13,6 +13,7 @@ var _world: VoxelWorldData
 var _chunks: Dictionary[Vector3i, StaticBody3D] = {}
 var _pending: Dictionary[Vector3i, bool] = {}
 var _material: ShaderMaterial
+var _structure_arrows: MultiMeshInstance3D
 
 
 func bind_world(world: VoxelWorldData) -> void:
@@ -37,9 +38,38 @@ func _physics_process(_delta: float) -> void:
 
 
 func rebuild_pending() -> void:
+	if _pending.is_empty():
+		return
 	for chunk: Vector3i in _pending.keys():
 		_rebuild_chunk(chunk)
 	_pending.clear()
+	_rebuild_structure_arrows()
+
+
+func _rebuild_structure_arrows() -> void:
+	if _structure_arrows == null:
+		_structure_arrows = MultiMeshInstance3D.new()
+		_structure_arrows.name = "StructureArrows"
+		_structure_arrows.multimesh = MultiMesh.new()
+		_structure_arrows.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		_structure_arrows.multimesh.mesh = LogisticsView._arrow_mesh()
+		var material: StandardMaterial3D = StandardMaterial3D.new()
+		material.albedo_color = Color("#222222")
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_structure_arrows.material_override = material
+		_structure_arrows.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_structure_arrows)
+	var rows: Array[Dictionary] = _world.structure_rows()
+	_structure_arrows.multimesh.instance_count = rows.size()
+	for index: int in range(rows.size()):
+		var anchor: Vector3i = rows[index]["anchor"]
+		var turns: int = rows[index]["rotation"]
+		var bounds: AABB = VoxelWorldData.structure_bounds(anchor)
+		var facing: Basis = Basis(Vector3.UP, PI - float(turns) * PI * 0.5)
+		_structure_arrows.multimesh.set_instance_transform(index, Transform3D(
+			facing.scaled(Vector3.ONE * 3.0), bounds.get_center() + Vector3.UP * (bounds.size.y * 0.5 + 0.01)
+		))
 
 
 static func _chunk_for(cell: Vector3i) -> Vector3i:
@@ -54,6 +84,7 @@ func _on_world_reset() -> void:
 	for cell: Vector3i in _world.solid_cells():
 		_pending[_chunk_for(cell)] = true
 	rebuild_pending()
+	_rebuild_structure_arrows()
 
 
 func _on_cell_changed(cell: Vector3i) -> void:
@@ -160,5 +191,7 @@ static func _face_color(block: int, normal: Vector3i) -> Color:
 			return Color("#344b58") if normal.y > 0 else Color("#657b85")
 		VoxelWorldData.Block.CHEST:
 			return Color("#b98a56") if normal.y > 0 else Color("#805e40")
+		VoxelWorldData.Block.STRUCTURE:
+			return Color("#d4d4d4") if normal.y > 0 else Color("#969696")
 		_:
 			return Color("#454e5b")

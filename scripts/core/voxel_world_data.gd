@@ -5,7 +5,7 @@ extends RefCounted
 signal cell_changed(cell: Vector3i)
 signal world_reset
 
-enum Block { AIR, GRASS, DIRT, STONE, BEDROCK, MINER, BELT, CHEST }
+enum Block { AIR, GRASS, DIRT, STONE, BEDROCK, MINER, BELT, CHEST, STRUCTURE }
 
 const CELL_SIZE: float = 0.5
 const BELT_HEIGHT: float = 0.08
@@ -13,11 +13,91 @@ const MIN_CELL: Vector3i = Vector3i(-32, -4, -32)
 const MAX_CELL: Vector3i = Vector3i(32, 60, 32)
 const DATA_CHUNK_SIZE: int = 32
 const CHUNK_VOLUME: int = DATA_CHUNK_SIZE * DATA_CHUNK_SIZE * DATA_CHUNK_SIZE
+const MAX_STRUCTURE_ID: int = 2147483646
 
 var _chunks: Dictionary[Vector3i, PackedByteArray] = {}
 var _differences: Dictionary[Vector3i, int] = {}
 var _flat: bool = false
 var _block_count: int = 0
+var _structure_cells: Dictionary[Vector3i, int] = {}
+var _structures: Dictionary[int, Dictionary] = {}
+var _next_structure_id: int = 1
+
+
+static func structure_anchor(point: Vector3) -> Vector3i:
+	return Vector3i(
+		roundi(point.x / CELL_SIZE - 0.5), roundi(point.y / CELL_SIZE),
+		roundi(point.z / CELL_SIZE - 0.5)
+	)
+
+
+static func structure_bounds(anchor: Vector3i) -> AABB:
+	return AABB(Vector3(anchor + Vector3i(-1, 0, -1)) * CELL_SIZE, Vector3.ONE * CELL_SIZE * 3.0)
+
+
+static func structure_footprint(anchor: Vector3i) -> Array[Vector3i]:
+	var cells: Array[Vector3i] = []
+	for x: int in range(-1, 2):
+		for y: int in range(3):
+			for z: int in range(-1, 2):
+				cells.append(anchor + Vector3i(x, y, z))
+	return cells
+
+
+func structure_at(cell: Vector3i) -> Dictionary:
+	if not _structure_cells.has(cell):
+		return {}
+	# Callers cannot mutate the authoritative identity/geometry.
+	return _structures[_structure_cells[cell]].duplicate()
+
+
+func structure_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for id: int in _structures:
+		rows.append(_structures[id].duplicate())
+	return rows
+
+
+func occupied_bounds_at(cell: Vector3i) -> AABB:
+	var structure: Dictionary = structure_at(cell)
+	if not structure.is_empty():
+		var anchor: Vector3i = structure["anchor"]
+		return structure_bounds(anchor)
+	return block_bounds(cell, get_block(cell))
+
+
+func structure_placement_error(anchor: Vector3i, occupied: AABB = AABB()) -> String:
+	for cell: Vector3i in structure_footprint(anchor):
+		if not is_in_bounds(cell):
+			return "超出世界边界"
+		if get_block(cell) != Block.AIR:
+			return "该位置已被占用"
+	if occupied.has_volume() and structure_bounds(anchor).intersects(occupied):
+		return "不能放在玩家所在位置"
+	return ""
+
+
+func place_structure(anchor: Vector3i, rotation: int = 0, occupied: AABB = AABB()) -> bool:
+	if rotation < 0 or rotation > 3 or not structure_placement_error(anchor, occupied).is_empty():
+		return false
+	# Loaded saves may use the largest legal ID; reuse a free ID on wrap.
+	if _next_structure_id > MAX_STRUCTURE_ID:
+		_next_structure_id = 1
+	while _structures.has(_next_structure_id):
+		_next_structure_id += 1
+		if _next_structure_id > MAX_STRUCTURE_ID:
+			_next_structure_id = 1
+	var id: int = _next_structure_id
+	_next_structure_id += 1
+	_structures[id] = {"id": id, "anchor": anchor, "block": Block.STRUCTURE, "rotation": rotation}
+	var cells: Array[Vector3i] = structure_footprint(anchor)
+	for cell: Vector3i in cells:
+		_structure_cells[cell] = id
+		_set_block(cell, Block.STRUCTURE)
+	# Publish only after the complete footprint and ownership are coherent.
+	for cell: Vector3i in cells:
+		cell_changed.emit(cell)
+	return true
 
 
 static func world_to_cell(position: Vector3) -> Vector3i:
@@ -56,6 +136,8 @@ static func block_name(block: int) -> String:
 			return "Belt"
 		Block.CHEST:
 			return "Chest"
+		Block.STRUCTURE:
+			return "Test structure"
 		_:
 			return "Air"
 
@@ -63,6 +145,9 @@ static func block_name(block: int) -> String:
 func generate_flat() -> void:
 	_chunks.clear()
 	_differences.clear()
+	_structure_cells.clear()
+	_structures.clear()
+	_next_structure_id = 1
 	_flat = true
 	_block_count = 64 * 64 * 4
 	world_reset.emit()
@@ -141,8 +226,11 @@ func chunk_deltas() -> Dictionary[Vector3i, PackedByteArray]:
 	return result
 
 
-func restore_chunks(flat: bool, chunks: Dictionary[Vector3i, PackedByteArray]) -> bool:
+func restore_chunks(
+	flat: bool, chunks: Dictionary[Vector3i, PackedByteArray], structures: Array = []
+) -> bool:
 	# Validate everything before mutating the live rules.
+	var placeholders: Dictionary[Vector3i, bool] = {}
 	for chunk: Vector3i in chunks:
 		if chunk.x not in [0, 1] or chunk.y not in [0, 1] or chunk.z not in [0, 1]:
 			return false
@@ -154,13 +242,45 @@ func restore_chunks(flat: bool, chunks: Dictionary[Vector3i, PackedByteArray]) -
 			var index: int = records.decode_u16(offset)
 			var block: int = records[offset + 2]
 			var cell: Vector3i = cell_in_chunk(chunk, index)
-			if index >= CHUNK_VOLUME or index <= previous or block > Block.CHEST:
+			if index >= CHUNK_VOLUME or index <= previous or block > Block.STRUCTURE:
 				return false
 			if block == Block.BEDROCK or (flat and cell.y == -4):
 				return false
 			previous = index
+			if block == Block.STRUCTURE:
+				placeholders[cell] = true
+	var owners: Dictionary[Vector3i, int] = {}
+	var instances: Dictionary[int, Dictionary] = {}
+	var next_id: int = 1
+	if structures.size() > (64 * 64 * 64) / 27.0:
+		return false
+	for value: Variant in structures:
+		if not value is Dictionary:
+			return false
+		var row: Dictionary = value
+		if not SnapshotValues.integer(row.get("id"), 1, MAX_STRUCTURE_ID) or (
+			row.get("block") != Block.STRUCTURE or not row.get("block") is int
+			or not row.get("anchor") is Vector3i
+			or not SnapshotValues.integer(row.get("rotation"), 0, 3)
+		):
+			return false
+		var id: int = row["id"]
+		var anchor: Vector3i = row["anchor"]
+		if instances.has(id) or not is_in_bounds(anchor):
+			return false
+		for cell: Vector3i in structure_footprint(anchor):
+			if not is_in_bounds(cell) or owners.has(cell) or not placeholders.has(cell):
+				return false
+			owners[cell] = id
+		instances[id] = {"id": id, "anchor": anchor, "block": Block.STRUCTURE, "rotation": row["rotation"]}
+		next_id = maxi(next_id, id + 1)
+	if owners.size() != placeholders.size():
+		return false
 	_chunks.clear()
 	_differences.clear()
+	_structure_cells = owners
+	_structures = instances
+	_next_structure_id = next_id
 	_flat = flat
 	_block_count = 64 * 64 * 4 if flat else 0
 	for chunk: Vector3i in chunks:
@@ -229,12 +349,25 @@ func break_block(cell: Vector3i) -> bool:
 	var block: int = get_block(cell)
 	if not is_in_bounds(cell) or block == Block.AIR or block == Block.BEDROCK:
 		return false
+	if _structure_cells.has(cell):
+		var id: int = _structure_cells[cell]
+		var anchor: Vector3i = _structures[id]["anchor"]
+		var cells: Array[Vector3i] = structure_footprint(anchor)
+		_structures.erase(id)
+		for part: Vector3i in cells:
+			_structure_cells.erase(part)
+			_set_block(part, Block.AIR)
+		for part: Vector3i in cells:
+			cell_changed.emit(part)
+		return true
 	_set_block(cell, Block.AIR)
 	cell_changed.emit(cell)
 	return true
 
 
 func place_block(cell: Vector3i, block: int, occupied_bounds: AABB = AABB()) -> bool:
+	if block == Block.STRUCTURE:
+		return place_structure(cell, 0, occupied_bounds)
 	if block not in [Block.GRASS, Block.DIRT, Block.STONE, Block.MINER, Block.BELT, Block.CHEST]:
 		return false
 	if not is_in_bounds(cell) or get_block(cell) != Block.AIR:

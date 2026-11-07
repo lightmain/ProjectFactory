@@ -28,7 +28,7 @@ static func cast(
 		var block: int = world.get_block(cell)
 		if block != VoxelWorldData.Block.AIR:
 			if block != VoxelWorldData.Block.BELT:
-				return VoxelHit.new(cell, normal, distance)
+				return VoxelHit.new(cell, normal, distance, origin + ray * distance)
 			var hit: VoxelHit = _cast_bounds(
 				cell, VoxelWorldData.block_bounds(cell, block), origin, ray, max_distance
 			)
@@ -74,4 +74,4 @@ static func _cast_bounds(
 			return null
 	if entry > max_distance:
 		return null
-	return VoxelHit.new(cell, normal, entry)
+	return VoxelHit.new(cell, normal, entry, origin + ray * entry)

@@ -7,6 +7,7 @@ var _arrows: MultiMeshInstance3D
 var _lock_rings: MultiMeshInstance3D
 var _body_material: StandardMaterial3D
 var _arrow_material: StandardMaterial3D
+var _structure_preview: bool = false
 
 
 func _ready() -> void:
@@ -32,6 +33,9 @@ func show_cells(
 	cells: Array[Vector3i], directions: Array[Vector3i], block: int,
 	world: VoxelWorldData, invalid: bool, locked_points: Array[Vector3i] = []
 ) -> void:
+	_structure_preview = false
+	_body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_HASH
+	_arrow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_HASH
 	var body_transforms: Array[Transform3D] = []
 	var arrow_transforms: Array[Transform3D] = []
 	for index: int in range(cells.size()):
@@ -69,12 +73,32 @@ func show_lock_points(cells: Array[Vector3i]) -> void:
 	_set_transforms(_lock_rings.multimesh, transforms)
 
 
+func show_structure(anchor: Vector3i, direction: Vector3i, invalid: bool) -> void:
+	_structure_preview = true
+	_body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_arrow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var bounds: AABB = VoxelWorldData.structure_bounds(anchor)
+	_set_transforms(_bodies.multimesh, [Transform3D(
+		Basis.IDENTITY.scaled(bounds.size), bounds.get_center()
+	)])
+	var facing: Basis = Basis(Vector3.UP, atan2(-float(direction.x), -float(direction.z)))
+	_set_transforms(_arrows.multimesh, [Transform3D(
+		facing.scaled(Vector3.ONE * 3.0), bounds.get_center() + Vector3.UP * (bounds.size.y * 0.5 + 0.01)
+	)])
+	show_lock_points([])
+	set_invalid(invalid)
+	show()
+
+
 func set_invalid(invalid: bool, failure_flash: bool = false) -> void:
 	var color: Color = Color("#ee665f") if invalid else Color("#64b7f5")
 	var arrow_color: Color = Color("#8c302a") if invalid else Color("#23486c")
+	if _structure_preview:
+		color = Color("#666666") if invalid else Color("#eeeeee")
+		arrow_color = Color("#aaaaaa") if invalid else Color("#222222")
 	if failure_flash:
-		color = Color("#ffb0a2")
-		arrow_color = Color("#fff1e9")
+		color = Color("#ffffff") if _structure_preview else Color("#ffb0a2")
+		arrow_color = Color("#ffffff") if _structure_preview else Color("#fff1e9")
 	_body_material.albedo_color = Color(color, 0.72 if failure_flash else 0.38)
 	_arrow_material.albedo_color = Color(arrow_color, 1.0 if failure_flash else 0.95)
 

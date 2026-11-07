@@ -26,6 +26,7 @@ var _preview_dirty: bool = true
 var _preview_has_hit: bool = false
 var _preview_cell: Vector3i
 var _preview_normal: Vector3i
+var _preview_anchor: Vector3i
 var _preview_direction: Vector3i
 var _preview_occupied: Array[Vector3i] = []
 var _preview_error: String = ""
@@ -108,6 +109,7 @@ func save_state() -> Dictionary:
 		"version": SessionSnapshot.FORMAT_VERSION, "generator": SessionSnapshot.GENERATOR_VERSION,
 		"minimum": VoxelWorldData.MIN_CELL, "maximum": VoxelWorldData.MAX_CELL,
 		"flat": world_data.has_flat_baseline(), "chunks": world_data.chunk_deltas(),
+		"structures": world_data.structure_rows(),
 		"logistics": logistics_data.save_state(), "inventory": inventory.save_state(),
 		"player": {
 			"position": player.position, "velocity": player.velocity, "spawn": player.spawn_position,
@@ -130,7 +132,7 @@ func _process(delta: float) -> void:
 	build_preview.set_invalid(not _preview_error.is_empty(), _failure_seconds > 0.0)
 	target_outline.visible = hit != null and player.controls_enabled()
 	if hit != null:
-		var bounds: AABB = VoxelWorldData.block_bounds(hit.cell, world_data.get_block(hit.cell))
+		var bounds: AABB = world_data.occupied_bounds_at(hit.cell)
 		target_outline.position = bounds.get_center()
 		target_outline.scale = bounds.size / VoxelWorldData.CELL_SIZE
 	hud.update_status(
@@ -251,8 +253,16 @@ func _place_target() -> void:
 		_update_preview(hit)
 		return
 	if hit == null or hit.normal == Vector3i.ZERO:
-		if LogisticsData.is_machine(selected_block):
+		if _has_build_preview():
 			_build_failed("请瞄准有效位置")
+		return
+	if selected_block == VoxelWorldData.Block.STRUCTURE:
+		if not _preview_error.is_empty():
+			_build_failed(_preview_error)
+		elif not world_data.place_structure(
+			VoxelWorldData.structure_anchor(hit.position), _build_rotation, player.occupied_bounds()
+		):
+			_build_failed("无法在此建造")
 		return
 	var cell: Vector3i = hit.adjacent_cell()
 	if free_camera.active and VoxelWorldData.block_bounds(cell, selected_block).intersects(
@@ -349,7 +359,7 @@ func _invalidate_preview(_cell: Vector3i) -> void:
 
 
 func _update_preview(hit: VoxelHit, force: bool = false) -> void:
-	if not player.controls_enabled() or not LogisticsData.is_machine(selected_block):
+	if not player.controls_enabled() or not _has_build_preview():
 		build_preview.hide()
 		_preview_dirty = true
 		return
@@ -361,15 +371,19 @@ func _update_preview(hit: VoxelHit, force: bool = false) -> void:
 	if free_camera.active:
 		occupied_cells.append_array(_occupied_preview_cells(free_camera.occupied_bounds()))
 	var has_hit: bool = hit != null
+	var anchor: Vector3i = VoxelWorldData.structure_anchor(hit.position) if has_hit else Vector3i.ZERO
 	if not force and not _preview_dirty and has_hit == _preview_has_hit and (
 		not has_hit or (hit.cell == _preview_cell and hit.normal == _preview_normal)
-	) and direction == _preview_direction and occupied_cells == _preview_occupied:
+	) and (selected_block != VoxelWorldData.Block.STRUCTURE or anchor == _preview_anchor) and (
+		direction == _preview_direction and occupied_cells == _preview_occupied
+	):
 		return
 	_preview_dirty = false
 	_preview_has_hit = has_hit
 	if has_hit:
 		_preview_cell = hit.cell
 		_preview_normal = hit.normal
+	_preview_anchor = anchor
 	_preview_direction = direction
 	_preview_occupied.assign(occupied_cells)
 	_preview_error = ""
@@ -385,6 +399,15 @@ func _update_preview(hit: VoxelHit, force: bool = false) -> void:
 	elif not has_hit:
 		build_preview.hide()
 		_preview_error = "请瞄准有效位置"
+	elif selected_block == VoxelWorldData.Block.STRUCTURE:
+		_preview_error = world_data.structure_placement_error(anchor, occupied)
+		if hit.normal == Vector3i.ZERO:
+			_preview_error = "请瞄准有效位置"
+		if _preview_error.is_empty() and free_camera.active and (
+			VoxelWorldData.structure_bounds(anchor).intersects(free_camera.occupied_bounds())
+		):
+			_preview_error = "无法在此建造"
+		build_preview.show_structure(anchor, direction, not _preview_error.is_empty())
 	else:
 		var cell: Vector3i = hit.adjacent_cell()
 		if selected_block == VoxelWorldData.Block.BELT:
@@ -441,9 +464,13 @@ func _select_block(block: int) -> void:
 
 
 func _rotate_build() -> void:
-	if LogisticsData.is_machine(selected_block):
+	if _has_build_preview():
 		_build_rotation = (_build_rotation + 1) % 4
 		_preview_dirty = true
+
+
+func _has_build_preview() -> bool:
+	return LogisticsData.is_machine(selected_block) or selected_block == VoxelWorldData.Block.STRUCTURE
 
 
 func _respawn_player() -> void:
