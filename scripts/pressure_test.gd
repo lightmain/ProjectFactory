@@ -26,13 +26,17 @@ func _initialize() -> void:
 
 func _run() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
-	if args.size() < 2 or args[0] not in ["generate", "run"]:
+	if args.size() < 2 or args[0] not in ["generate", "run", "benchmark"]:
 		printerr("Usage: -- generate|run SAVE_DIRECTORY [SIZE HEIGHT | SECONDS]")
+		printerr("       -- benchmark SAVE_DIRECTORY REPORT_DIRECTORY [SAMPLES SECONDS ROUNDS TIMEOUT]")
 		quit(2)
 		return
 	_directory = args[1]
 	var store: SaveGameStore = SaveGameStore.new()
 	store.directory = _directory
+	if args[0] == "benchmark":
+		_benchmark(args, store)
+		return
 	if args[0] == "generate":
 		var size: int = int(args[2]) if args.size() > 2 else 128
 		var height: int = int(args[3]) if args.size() > 3 else 64
@@ -102,6 +106,121 @@ func _run() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	root.grab_focus()
 	RenderingServer.frame_post_draw.connect(_measure)
+
+
+func _benchmark(args: PackedStringArray, store: SaveGameStore) -> void:
+	if args.size() < 3 or args.size() > 7:
+		printerr("benchmark requires a new report directory.")
+		quit(2)
+		return
+	for index: int in range(3, args.size()):
+		var integer_argument: bool = index == 3 or index == 5
+		if (integer_argument and not args[index].is_valid_int()) or (
+			not integer_argument and not args[index].is_valid_float()
+		):
+			printerr("Invalid benchmark number: ", args[index])
+			quit(2)
+			return
+	var count: int = int(args[3]) if args.size() > 3 else 120
+	var seconds: float = float(args[4]) if args.size() > 4 else 30.0
+	var rounds: int = int(args[5]) if args.size() > 5 else 3
+	var timeout: float = float(args[6]) if args.size() > 6 else 120.0
+	if count < 1 or count > 100000 or rounds < 1 or rounds > 10 or (
+		not is_finite(seconds) or seconds < 0.0 or seconds > 600.0
+		or not is_finite(timeout) or timeout < 0.0 or timeout > 600.0
+	):
+		printerr("Invalid benchmark samples, duration, rounds or timeout.")
+		quit(2)
+		return
+	var output: String = args[2]
+	if DirAccess.dir_exists_absolute(output) or FileAccess.file_exists(output):
+		printerr("Report directory already exists: ", output)
+		quit(2)
+		return
+	var save_id: String = store.latest_id()
+	if save_id.is_empty() or DirAccess.make_dir_recursive_absolute(output) != OK:
+		printerr("Missing save or cannot create report directory.")
+		quit(1)
+		return
+	_directory = output
+	var reports: Array[Dictionary] = []
+	var fingerprint: String = ""
+	var complete: bool = true
+	for round_index: int in range(rounds):
+		var started: int = Time.get_ticks_usec()
+		var state: Dictionary = store.load_named(save_id)
+		var load_seconds: float = float(Time.get_ticks_usec() - started) / 1000000.0
+		if state.is_empty():
+			printerr("Load failed: ", store.last_error)
+			quit(1)
+			return
+		var hash: HashingContext = HashingContext.new()
+		hash.start(HashingContext.HASH_SHA256)
+		hash.update(var_to_bytes(state))
+		var state_hash: String = hash.finish().hex_encode()
+		if not fingerprint.is_empty() and fingerprint != state_hash:
+			printerr("Save content changed between benchmark rounds.")
+			quit(1)
+			return
+		fingerprint = state_hash
+		started = Time.get_ticks_usec()
+		# Deliberately retain the existing second decode as the T17 baseline.
+		var snapshot: SessionSnapshot = SessionSnapshot.decode(state)
+		var decode_seconds: float = float(Time.get_ticks_usec() - started) / 1000000.0
+		state.clear()
+		if snapshot == null:
+			printerr("Second decode failed.")
+			quit(1)
+			return
+		var route: Dictionary = PressureSaveBuilder.route_certificate(snapshot)
+		if route.is_empty():
+			printerr("Restored baseline is not a complete pressure belt chain.")
+			quit(1)
+			return
+		var initial_ores: int = snapshot.logistics.total_ore()
+		var report: Dictionary = PressureBenchmark.measure(snapshot, count, seconds, timeout)
+		report["load_validate_seconds"] = load_seconds
+		report["second_decode_seconds"] = decode_seconds
+		report["route"] = route
+		report["initial_ores"] = initial_ores
+		report["final_ores"] = snapshot.logistics.total_ore()
+		report["round"] = round_index + 1
+		report["save_id"] = save_id
+		report["state_sha256"] = state_hash
+		var samples_file: String = "round_%02d.json" % (round_index + 1)
+		if not _write_json(samples_file, report):
+			quit(1)
+			return
+		complete = complete and report["complete"]
+		snapshot = null
+		# Each round's raw arrays are already on disk; retain summaries only.
+		var summary: Dictionary = report.duplicate()
+		summary.erase("tick_ms")
+		summary.erase("display_ms")
+		summary["samples_file"] = samples_file
+		reports.append(summary)
+		print("PRESSURE_BENCHMARK_ROUND ", round_index + 1,
+			" tick=", JSON.stringify(report["tick"]), " complete=", report["complete"])
+	var result: Dictionary = {
+		"schema": 2, "mode": "isolated_rules", "save_id": save_id,
+		"state_sha256": fingerprint, "engine": Engine.get_version_info()["string"],
+		"cpu": OS.get_processor_name(), "complete": complete, "rounds": reports,
+		"static_memory_peak_bytes": Performance.get_monitor(Performance.MEMORY_STATIC_MAX),
+		"limits": [
+			"Rule timings include cold caches; no scene mounting or graphical rendering.",
+			"Display timings measure full sample_belts only; observer scans are timed separately.",
+			"Memory is engine static allocation peak for this process, not peak RSS.",
+			"Observer includes work accounting and result cleanup; display measures the call only.",
+			"Timeout covers measurement only, excluding load, decode and route audit.",
+			"Raw samples capped at 100000 per round; capacity exhaustion is incomplete.",
+			"Timeout checked between completed tick/sample pairs; an in-flight pair may exceed it.",
+		],
+	}
+	if not _write_json("benchmark.json", result):
+		quit(1)
+		return
+	print("PRESSURE_BENCHMARK_RESULT ", output.path_join("benchmark.json"))
+	quit(0 if complete else 3)
 
 
 func _measure() -> void:

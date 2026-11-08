@@ -231,12 +231,23 @@ godot --headless --path . --log-file /tmp/prealpha2_pressure_generate.log \
   -s res://scripts/pressure_test.gd -- generate "$PWD/build/prealpha2_baseline" 128 64
 godot --path . --log-file /tmp/prealpha2_pressure_run.log \
   -s res://scripts/pressure_test.gd -- run "$PWD/build/prealpha2_baseline" 30
+# 已实现的规则采集切片：原档只读，报告目录须不存在
+godot --headless --path . --log-file /tmp/prealpha2_rules.log \
+  -s res://scripts/pressure_test.gd -- benchmark \
+  "$PWD/build/prealpha2_baseline" "$PWD/build/prealpha2_rules_report" 120 30 3 120
 # 文档及空白检查
 git diff --check
 ```
 
-现有 run 仅提供墙钟窗口和基本数量／FPS，不足以输出以上完整矩阵与分位数；
-T01 扩展测量工具后记录最终可执行入口，不把尚不存在的子命令写作当前可用。
+现有 run 仅提供墙钟窗口和基本数量／FPS，不足以输出以上完整矩阵与分位数。
+新增 benchmark 已提供规则采集：参数依次为最少样本、最短秒数、轮数、测量超时；
+默认 120、30、3、120。每轮最多保留 100000 对原始样本，达到上限或超时
+而未满足窗口时记录未完成并以 3 退出；超时只覆盖 tick／采样窗口，不能中断正在执行的批次。
+`round_01.json` 等逐轮保存原始数据，`benchmark.json` 保存汇总和文件索引。
+这里的显示耗时仅为 `sample_belts` 调用，观察扫描与结果清理单列；
+不包含场景挂载或图形绘制，不用它推算图形 FPS。内存为进程内引擎静态分配峰值，非 RSS。
+完整 T01 尚未完成，后续须补图形分项、预热、完整矩阵和同条件基线，
+执行与已知限制见[首次实现审查](../../reviews/prealpha2-logistics-performance.md)。
 使用现有冻结压力档时直接 run 其独立副本；生成新矩阵另用唯一目录。
 视觉批次按 AGENTS 先确认实时 Godot AI 连接当前项目、读取目标节点，
 修改脚本后扫描，修改 `.tscn` 后保存并立即完整验证；
@@ -245,6 +256,8 @@ T01 扩展测量工具后记录最终可执行入口，不把尚不存在的子�
 ## 开发任务与依赖
 
 当前 T01 基准采集开始实施，其余任务待实施；数组越界仍未解决。
+首个规则采集切片已实现；百万档恢复、拆除、旋转、补充结算的隔离探针未复现数组越界。
+这不是 T02a 的复现交付，尚无正确失败的数组越界回归；T02b 及其依赖继续等待。
 每项控制在一次集中会话、约 2～5 个文件；
 预计范围按子系统计，不承诺日历工期。每项完成后保持项目可运行，
 游戏行为先 RED 再 GREEN；每个变更独立 subagent 先读验收／测试再审查，
