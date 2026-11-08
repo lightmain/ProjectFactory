@@ -3,7 +3,8 @@ extends RefCounted
 ## Dense active facilities, bounded direct cell lookup and settled adjacency.
 ## Edits touch at most three predecessors and one successor; rebuild is batched.
 
-const EXTENT: Vector3i = VoxelWorldData.MAX_CELL - VoxelWorldData.MIN_CELL
+var _extent: Vector3i = VoxelWorldData.MAX_CELL - VoxelWorldData.MIN_CELL
+var _minimum: Vector3i = VoxelWorldData.MIN_CELL
 
 var cells: Array[Vector3i] = []
 var machines: Array[LogisticsMachine] = []
@@ -18,28 +19,31 @@ func _init() -> void:
 	clear()
 
 
-func clear() -> void:
+func clear(world: VoxelWorldData = null) -> void:
+	if world != null:
+		_minimum = world.minimum
+		_extent = world.maximum - world.minimum
 	cells.clear()
 	machines.clear()
 	outgoing.clear()
 	inputs.clear()
-	_slots.resize(EXTENT.x * EXTENT.y * EXTENT.z)
+	_slots.resize(_extent.x * _extent.y * _extent.z)
 	_slots.fill(-1)
 	dirty = true
 
 
 func index_at(cell: Vector3i) -> int:
-	var local: Vector3i = cell - VoxelWorldData.MIN_CELL
+	var local: Vector3i = cell - _minimum
 	if (
 		local.x < 0 or local.y < 0 or local.z < 0
-		or local.x >= EXTENT.x or local.y >= EXTENT.y or local.z >= EXTENT.z
+		or local.x >= _extent.x or local.y >= _extent.y or local.z >= _extent.z
 	):
 		return -1
 	return _slots[_address(local)]
 
 
 func add(cell: Vector3i, machine: LogisticsMachine) -> void:
-	_slots[_address(cell - VoxelWorldData.MIN_CELL)] = machines.size()
+	_slots[_address(cell - _minimum)] = machines.size()
 	cells.append(cell)
 	machines.append(machine)
 	outgoing.append(-1)
@@ -59,7 +63,7 @@ func remove(index: int) -> void:
 		var source: int = inputs[index * 3 + port]
 		if source >= 0:
 			outgoing[source] = -1
-	_slots[_address(cells[index] - VoxelWorldData.MIN_CELL)] = -1
+	_slots[_address(cells[index] - _minimum)] = -1
 	var last: int = machines.size() - 1
 	if index != last:
 		cells[index] = cells[last]
@@ -75,7 +79,7 @@ func remove(index: int) -> void:
 			for port: int in range(3):
 				if inputs[target * 3 + port] == last:
 					inputs[target * 3 + port] = index
-		_slots[_address(cells[index] - VoxelWorldData.MIN_CELL)] = index
+		_slots[_address(cells[index] - _minimum)] = index
 	cells.pop_back()
 	machines.pop_back()
 	outgoing.pop_back()
@@ -136,5 +140,5 @@ func connects(source: int, target: int, port: int) -> bool:
 	)
 
 
-static func _address(local: Vector3i) -> int:
-	return (local.y * EXTENT.z + local.z) * EXTENT.x + local.x
+func _address(local: Vector3i) -> int:
+	return (local.y * _extent.z + local.z) * _extent.x + local.x

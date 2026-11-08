@@ -31,6 +31,10 @@ func save_state() -> Dictionary:
 	}
 
 
+func production_phase() -> Dictionary:
+	return {"placed": _placed_at, "cycles": _produced_cycles}
+
+
 static func decode(state: Dictionary, time: float, tick: int) -> LogisticsMachine:
 	if not SnapshotValues.integer(state.get("block"), 5, 16) or (
 		not SnapshotValues.direction(state.get("direction"))

@@ -58,6 +58,11 @@ else:
 
 class VerifyRegressionTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Hooks may export GIT_DIR/WORK_TREE/INDEX_FILE for their caller. Every
+        # subprocess here belongs to an independent fixture repository.
+        self.environment = {
+            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+        }
         self.temporary = tempfile.TemporaryDirectory(prefix="verify-regression-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "open project"
@@ -83,13 +88,13 @@ class VerifyRegressionTests(unittest.TestCase):
         self.engine = Path(self.temporary.name) / "fake godot"
         self.engine.write_text(FAKE_ENGINE)
         self.engine.chmod(0o755)
-        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "init", "-q", str(self.root)], env=self.environment, check=True)
 
     def test_validation_preserves_editor_cache_and_uncommitted_resources(self) -> None:
         result = subprocess.run(
             ["bash", str(self.root / "scripts" / "verify.sh")],
             cwd=self.temporary.name,
-            env={**os.environ, "GODOT_BIN": str(self.engine)},
+            env={**self.environment, "GODOT_BIN": str(self.engine)},
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         self.assertEqual(self.cache.read_text(), "live editor cache", result.stdout)
@@ -107,10 +112,32 @@ class VerifyRegressionTests(unittest.TestCase):
     def test_type_check_replaces_the_current_startup_scene(self) -> None:
         result = subprocess.run(
             ["python3", str(self.root / "scripts" / "check_types.py"), str(self.engine)],
+            env=self.environment,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.cache.read_text(), "live editor cache")
+
+    def test_git_fixtures_ignore_parent_repository_environment(self) -> None:
+        parent = Path(self.temporary.name) / "parent repository"
+        clean_environment = {
+            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+        }
+        subprocess.run(["git", "init", "-q", str(parent)], env=clean_environment, check=True)
+        configuration = (parent / ".git" / "config").read_bytes()
+        fixture = VerifyRegressionTests()
+        self.addCleanup(fixture.doCleanups)
+        with patch.dict(os.environ, {
+            "GIT_DIR": str(parent / ".git"),
+            "GIT_COMMON_DIR": str(parent / ".git"),
+            "GIT_WORK_TREE": str(parent),
+            "GIT_INDEX_FILE": str(parent / ".git" / "index"),
+        }):
+            fixture.setUp()
+            self.assertTrue((fixture.root / ".git").is_dir())
+            self.assertEqual((parent / ".git" / "config").read_bytes(), configuration)
+            fixture.test_validation_preserves_editor_cache_and_uncommitted_resources()
+            self.assertEqual((parent / ".git" / "config").read_bytes(), configuration)
 
     def test_startup_failure_preserves_logs_and_restores_configuration(self) -> None:
         check_root = Path(self.temporary.name) / "startup project"

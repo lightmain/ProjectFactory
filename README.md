@@ -105,5 +105,7 @@ addons/                原样复用的 Godot AI 与 GdUnit4
   独立单格的上坡／下坡、直行端口与升降运输。
 - [直角贴地传送带线路](docs/features/prealpha-1/010-orthogonal-belt-routes.md)：
   固定直角投影、R 切换轴顺序与贪心坡道规划。
+- [大世界存档与压力测试](docs/features/prealpha-1/011-pressure-save.md)：
+  可变边界、紧凑存档、内容物编辑与压力档生成／测量工具。
 
 历史审查与验证证据保存在 `docs/reviews/`，其中结果仅对应各次记录的验证范围。

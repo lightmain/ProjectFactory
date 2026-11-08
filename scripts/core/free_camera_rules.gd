@@ -77,8 +77,8 @@ static func move_linear(
 	travel = minf(travel, maxf(0, sphere_exit))
 	var end: Vector3 = start + direction * travel
 	var sweep: AABB = AABB(start.min(end), start.max(end) - start.min(end)).grow(half_size)
-	var first: Vector3i = (VoxelWorldData.world_to_cell(sweep.position) + Vector3i.DOWN).max(VoxelWorldData.MIN_CELL)
-	var last: Vector3i = VoxelWorldData.world_to_cell(sweep.end).min(VoxelWorldData.MAX_CELL - Vector3i.ONE)
+	var first: Vector3i = (VoxelWorldData.world_to_cell(sweep.position) + Vector3i.DOWN).max(world.minimum)
+	var last: Vector3i = VoxelWorldData.world_to_cell(sweep.end).min(world.maximum - Vector3i.ONE)
 	for x: int in range(first.x, last.x + 1):
 		for y: int in range(first.y, last.y + 1):
 			for z: int in range(first.z, last.z + 1):
@@ -124,8 +124,8 @@ static func _axis_motion(
 	var end: Vector3 = position
 	end[axis] += motion
 	var sweep: AABB = AABB(position.min(end), position.max(end) - position.min(end)).grow(half_size)
-	var first: Vector3i = (VoxelWorldData.world_to_cell(sweep.position) + Vector3i.DOWN).max(VoxelWorldData.MIN_CELL)
-	var last: Vector3i = VoxelWorldData.world_to_cell(sweep.end).min(VoxelWorldData.MAX_CELL - Vector3i.ONE)
+	var first: Vector3i = (VoxelWorldData.world_to_cell(sweep.position) + Vector3i.DOWN).max(world.minimum)
+	var last: Vector3i = VoxelWorldData.world_to_cell(sweep.end).min(world.maximum - Vector3i.ONE)
 	var travel: float = absf(motion)
 	var direction_sign: float = signf(motion)
 	for x: int in range(first.x, last.x + 1):

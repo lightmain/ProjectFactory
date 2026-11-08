@@ -2,7 +2,7 @@ class_name SaveGameStore
 extends RefCounted
 ## Named snapshots use an atomic catalog; each payload reuses the verified bank writer.
 
-const SESSION_LIMIT: int = 16 * 1024 * 1024
+const SESSION_LIMIT: int = 384 * 1024 * 1024
 const HEADER_SIZE: int = 40
 const MAGIC: int = 0x31534650
 
@@ -284,7 +284,7 @@ func save_game(state: Dictionary) -> bool:
 	for filename: String in folder.get_files():
 		if folder.remove(filename) != OK:
 			return _fail("Cannot replace save generation.")
-	var manifest: Dictionary = state.duplicate(true)
+	var manifest: Dictionary = state.duplicate()
 	var chunks: Dictionary = manifest["chunks"]
 	var keys: Array[Vector3i] = []
 	for chunk: Vector3i in chunks:
@@ -341,7 +341,7 @@ func _read_bank(bank: String) -> Dictionary:
 		_fail("Invalid chunk manifest.")
 		return {}
 	var keys: Array = state["chunks"]
-	if keys.size() > 8:
+	if keys.size() > VoxelWorldData.MAX_CHUNKS:
 		_fail("Too many chunks.")
 		return {}
 	var chunks: Dictionary[Vector3i, PackedByteArray] = {}
@@ -350,7 +350,7 @@ func _read_bank(bank: String) -> Dictionary:
 			_fail("Invalid chunk coordinate.")
 			return {}
 		var chunk: Vector3i = key
-		if chunk.x not in [0, 1] or chunk.y not in [0, 1] or chunk.z not in [0, 1] or chunks.has(chunk):
+		if chunk.x < 0 or chunk.x > 3 or chunk.y < 0 or chunk.y > 3 or chunk.z < 0 or chunk.z > 3 or chunks.has(chunk):
 			_fail("Invalid or duplicate chunk.")
 			return {}
 		var records: PackedByteArray = _read_blob(path.path_join(_chunk_name(chunk)), VoxelWorldData.CHUNK_VOLUME * 3)

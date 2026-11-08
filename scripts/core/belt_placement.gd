@@ -142,7 +142,7 @@ func preview(hit: VoxelHit, preferred: Vector3i) -> void:
 		var cell: Vector3i = locked_path[index]
 		var column: Vector2i = Vector2i(cell.x, cell.z)
 		var top: int = cell.y + (2 if VoxelWorldData.is_slope(_locked_blocks[index]) else 1)
-		var previous_top: int = prefix_tops[column] if prefix_tops.has(column) else VoxelWorldData.MIN_CELL.y
+		var previous_top: int = prefix_tops[column] if prefix_tops.has(column) else _world.minimum.y
 		prefix_tops[column] = maxi(previous_top, top)
 	for index: int in range(suffix.size()):
 		var cell: Vector3i = suffix[index]
@@ -318,14 +318,14 @@ func _route_directions(cells: Array[Vector3i]) -> Array[Vector3i]:
 
 
 func _column_floor(cell: Vector3i, prefix_tops: Dictionary[Vector2i, int]) -> int:
-	var floor_height: int = VoxelWorldData.MIN_CELL.y
-	for y: int in range(VoxelWorldData.MAX_CELL.y - 1, VoxelWorldData.MIN_CELL.y - 1, -1):
+	var floor_height: int = _world.minimum.y
+	for y: int in range(_world.maximum.y - 1, _world.minimum.y - 1, -1):
 		var block: int = _world.get_block(Vector3i(cell.x, y, cell.z))
 		if block != VoxelWorldData.Block.AIR:
 			floor_height = y + (2 if VoxelWorldData.is_slope(block) else 1)
 			break
 	var column: Vector2i = Vector2i(cell.x, cell.z)
-	var prefix_top: int = prefix_tops[column] if prefix_tops.has(column) else VoxelWorldData.MIN_CELL.y
+	var prefix_top: int = prefix_tops[column] if prefix_tops.has(column) else _world.minimum.y
 	return maxi(floor_height, prefix_top)
 
 

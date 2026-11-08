@@ -57,7 +57,7 @@ func _ready() -> void:
 		inventory = initial_snapshot.inventory
 		# Restore tuning for newly placed machines without editing the shared Resource.
 		game_config = game_config.duplicate() as GameConfig
-		var simulation: Dictionary = logistics_data.save_state()
+		var simulation: Dictionary = logistics_data.mining_settings()
 		game_config.mining_interval = simulation["interval"]
 		game_config.mining_amount = simulation["amount"]
 		player.position = initial_snapshot.position
@@ -104,14 +104,16 @@ func _ready() -> void:
 	_build_target_outline()
 
 
-func save_state() -> Dictionary:
+func save_state(packed: bool = false) -> Dictionary:
 	return {
 		"world_id": world_id, "world_name": world_name,
 		"version": SessionSnapshot.FORMAT_VERSION, "generator": SessionSnapshot.GENERATOR_VERSION,
-		"minimum": VoxelWorldData.MIN_CELL, "maximum": VoxelWorldData.MAX_CELL,
+		"minimum": world_data.minimum, "maximum": world_data.maximum,
+		"floor_depth": world_data.floor_depth,
 		"flat": world_data.has_flat_baseline(), "chunks": world_data.chunk_deltas(),
 		"structures": world_data.structure_rows(),
-		"logistics": logistics_data.save_state(), "inventory": inventory.save_state(),
+		"logistics": logistics_data.save_packed_state() if packed else logistics_data.save_state(),
+		"inventory": inventory.save_state(),
 		"player": {
 			"position": player.position, "velocity": player.velocity, "spawn": player.spawn_position,
 			"rotation": player.camera.rotation, "tool": selected_block, "build_rotation": _build_rotation,

@@ -173,7 +173,60 @@ func save_state() -> Dictionary:
 	}
 
 
+func save_packed_state() -> Dictionary:
+	var bytes: PackedByteArray = PackedByteArray()
+	bytes.resize(_topology.machines.size() * LogisticsPacked.ROW_SIZE)
+	bytes.fill(0)
+	for index: int in range(_topology.machines.size()):
+		LogisticsPacked.write_row(bytes, index, _topology.cells[index], _topology.machines[index])
+	return {
+		"packed": 1, "time": _time, "compensation": _time_compensation, "tick": _tick,
+		"flushed": _flushed_tick, "next_id": _batch.next_ore_id,
+		"interval": _mining_interval, "amount": _mining_amount, "dirty": _topology.dirty,
+		"machines": bytes, "outgoing": PackedInt32Array(_topology.outgoing),
+		"inputs": PackedInt32Array(_topology.inputs),
+	}
+
+
+func mining_settings() -> Dictionary:
+	return {"interval": _mining_interval, "amount": _mining_amount}
+
+
+func logic_tick() -> int:
+	return _tick
+
+
+func prefill_belts() -> bool:
+	## Authoring helper for a fresh factory; disk writes still validate a full snapshot.
+	if _tick != 0 or _time != 0.0 or total_ore() != 0:
+		return false
+	_topology.rebuild()
+	for index: int in range(_topology.machines.size()):
+		var machine: LogisticsMachine = _topology.machines[index]
+		if not VoxelWorldData.is_belt(machine.block):
+			continue
+		var incoming: Vector3i = machine.settled_direction
+		for port: int in range(3):
+			var source: int = _topology.inputs[index * 3 + port]
+			if source >= 0:
+				incoming = _topology.machines[source].settled_direction
+				break
+		for progress: float in [1.0, 0.5]:
+			var ore: LogisticsOre = LogisticsOre.new(_batch.next_ore_id, incoming)
+			_batch.next_ore_id += 1
+			ore.progress = progress
+			machine.belt_ores.append(ore)
+		machine.quantity = 2
+		machine.eligible_quantity = 2
+	_version += 1
+	return true
+
+
 func restore_state(state: Dictionary) -> bool:
+	var packed: bool = state.get("machines") is PackedByteArray
+	if packed and (not SnapshotValues.integer(state.get("packed"), 1, 1)
+		or not state.get("inputs") is PackedInt32Array or not state.get("outgoing") is PackedInt32Array):
+		return false
 	if _world == null or not SnapshotValues.number(state.get("time"), 0.0, 100000000.0) or (
 		not SnapshotValues.number(state.get("compensation"), -0.00001, 0.00001)
 		or not SnapshotValues.integer(state.get("tick"), 0, 6000000000)
@@ -181,8 +234,8 @@ func restore_state(state: Dictionary) -> bool:
 		or not SnapshotValues.integer(state.get("next_id"), 1, SnapshotValues.MAX_INTEGER)
 		or not state.get("interval") is float
 		or not SnapshotValues.integer(state.get("amount"), SnapshotValues.MIN_INTEGER, SnapshotValues.MAX_INTEGER)
-		or not state.get("dirty") is bool or not state.get("machines") is Array
-		or not state.get("inputs") is Array or not state.get("outgoing") is Array
+		or not state.get("dirty") is bool or (not packed and (
+			not state.get("machines") is Array or not state.get("inputs") is Array or not state.get("outgoing") is Array))
 	):
 		return false
 	var time: float = state["time"]
@@ -190,12 +243,22 @@ func restore_state(state: Dictionary) -> bool:
 	var flushed: int = state["flushed"]
 	if tick != int(floorf((time + TIME_EPSILON) / LOGIC_STEP)) or flushed > tick:
 		return false
-	var rows: Array = state["machines"]
-	if rows.size() != _topology.machines.size():
+	var rows: Array = []
+	var bytes: PackedByteArray = PackedByteArray()
+	if packed:
+		bytes = state["machines"]
+		if bytes.size() % LogisticsPacked.ROW_SIZE != 0:
+			return false
+	else:
+		rows = state["machines"]
+	var count: int = bytes.size() / LogisticsPacked.ROW_SIZE if packed else rows.size()
+	if count != _topology.machines.size():
 		return false
 	var topology: LogisticsTopology = LogisticsTopology.new()
+	topology.clear(_world)
 	var ids: Dictionary[int, bool] = {}
-	for value: Variant in rows:
+	for index: int in range(count):
+		var value: Variant = LogisticsPacked.read_row(bytes, index) if packed else rows[index]
 		if not value is Dictionary:
 			return false
 		var row: Dictionary = value
@@ -212,16 +275,26 @@ func restore_state(state: Dictionary) -> bool:
 				return false
 			ids[ore.id] = true
 		topology.add(cell, machine)
-	var outgoing: Array = state["outgoing"]
-	var inputs: Array = state["inputs"]
-	if outgoing.size() != rows.size() or inputs.size() != rows.size() * 3:
+	var outgoing: Array = []
+	var inputs: Array = []
+	if packed:
+		var packed_outgoing: PackedInt32Array = state["outgoing"]
+		var packed_inputs: PackedInt32Array = state["inputs"]
+		outgoing.assign(Array(packed_outgoing))
+		inputs.assign(Array(packed_inputs))
+	else:
+		var array_outgoing: Array = state["outgoing"]
+		var array_inputs: Array = state["inputs"]
+		outgoing.assign(array_outgoing)
+		inputs.assign(array_inputs)
+	if outgoing.size() != count or inputs.size() != count * 3:
 		return false
 	for value: Variant in outgoing + inputs:
-		if not SnapshotValues.integer(value, -1, rows.size() - 1):
+		if not SnapshotValues.integer(value, -1, count - 1):
 			return false
 	topology.outgoing.assign(outgoing)
 	topology.inputs.assign(inputs)
-	for target: int in range(rows.size()):
+	for target: int in range(count):
 		for port: int in range(3):
 			var source: int = topology.inputs[target * 3 + port]
 			if source < 0:
@@ -318,7 +391,7 @@ func _rebuild_topology() -> void:
 
 
 func _on_world_reset() -> void:
-	_topology.clear()
+	_topology.clear(_world)
 	_sample_queues.clear()
 	_time = 0.0
 	_time_compensation = 0.0

@@ -15,6 +15,8 @@ const CELL_SIZE: float = 0.5
 const BELT_HEIGHT: float = 0.08
 const MIN_CELL: Vector3i = Vector3i(-32, -4, -32)
 const MAX_CELL: Vector3i = Vector3i(32, 60, 32)
+const MAX_EXTENT: int = 128
+const MAX_CHUNKS: int = 64
 const DATA_CHUNK_SIZE: int = 32
 const CHUNK_VOLUME: int = DATA_CHUNK_SIZE * DATA_CHUNK_SIZE * DATA_CHUNK_SIZE
 const MAX_STRUCTURE_ID: int = 2147483646
@@ -27,6 +29,28 @@ var _block_count: int = 0
 var _structure_cells: Dictionary[Vector3i, int] = {}
 var _structures: Dictionary[int, Dictionary] = {}
 var _next_structure_id: int = 1
+var minimum: Vector3i = MIN_CELL
+var maximum: Vector3i = MAX_CELL
+var floor_depth: int = 4
+
+
+static func valid_dimensions(low: Vector3i, high: Vector3i, depth: int) -> bool:
+	var extent: Vector3i = high - low
+	return depth >= 1 and depth <= 4 and low.y == -depth and (
+		extent.x > 0 and extent.y > depth and extent.z > 0
+		and extent.x <= MAX_EXTENT and extent.y <= MAX_EXTENT and extent.z <= MAX_EXTENT
+		and low.abs().x <= 256 and low.abs().y <= 256 and low.abs().z <= 256
+		and high.abs().x <= 256 and high.abs().y <= 256 and high.abs().z <= 256
+	)
+
+
+func valid_chunk(chunk: Vector3i) -> bool:
+	var extent: Vector3i = maximum - minimum
+	return chunk.x >= 0 and chunk.y >= 0 and chunk.z >= 0 and (
+		chunk.x < ceili(float(extent.x) / DATA_CHUNK_SIZE)
+		and chunk.y < ceili(float(extent.y) / DATA_CHUNK_SIZE)
+		and chunk.z < ceili(float(extent.z) / DATA_CHUNK_SIZE)
+	)
 
 
 static func structure_anchor(point: Vector3) -> Vector3i:
@@ -195,7 +219,7 @@ func placement_error(cell: Vector3i, block: int, occupied: AABB = AABB()) -> Str
 
 
 func _geometry_error(cell: Vector3i, block: int) -> String:
-	if block_bounds(cell, block).end.y > float(MAX_CELL.y) * CELL_SIZE:
+	if block_bounds(cell, block).end.y > float(maximum.y) * CELL_SIZE:
 		return "超出世界边界"
 	# Slopes stay within their X/Z cell and protrude only into the cell above.
 	for other_cell: Vector3i in [cell + Vector3i.UP, cell + Vector3i.DOWN]:
@@ -253,29 +277,35 @@ static func block_name(block: int) -> String:
 			return "Air"
 
 
-func generate_flat() -> void:
+func generate_flat(low: Vector3i = MIN_CELL, high: Vector3i = MAX_CELL, depth: int = 4) -> bool:
+	if not valid_dimensions(low, high, depth):
+		return false
+	minimum = low
+	maximum = high
+	floor_depth = depth
 	_chunks.clear()
 	_differences.clear()
 	_structure_cells.clear()
 	_structures.clear()
 	_next_structure_id = 1
 	_flat = true
-	_block_count = 64 * 64 * 4
+	_block_count = (maximum.x - minimum.x) * (maximum.z - minimum.z) * floor_depth
 	world_reset.emit()
+	return true
 
 
 func is_in_bounds(cell: Vector3i) -> bool:
 	return (
-		cell.x >= MIN_CELL.x and cell.x < MAX_CELL.x
-		and cell.y >= MIN_CELL.y and cell.y < MAX_CELL.y
-		and cell.z >= MIN_CELL.z and cell.z < MAX_CELL.z
+		cell.x >= minimum.x and cell.x < maximum.x
+		and cell.y >= minimum.y and cell.y < maximum.y
+		and cell.z >= minimum.z and cell.z < maximum.z
 	)
 
 
 func get_block(cell: Vector3i) -> int:
 	if not is_in_bounds(cell):
 		return Block.AIR
-	var chunk: Vector3i = chunk_for(cell)
+	var chunk: Vector3i = chunk_for(cell, minimum)
 	if _chunks.has(chunk):
 		return _chunks[chunk][_local_index(cell)]
 	return _baseline(cell)
@@ -288,9 +318,9 @@ func block_count() -> int:
 func solid_cells() -> Array[Vector3i]:
 	var cells: Array[Vector3i] = []
 	if _flat:
-		for x: int in range(MIN_CELL.x, MAX_CELL.x):
-			for z: int in range(MIN_CELL.z, MAX_CELL.z):
-				for y: int in range(-4, 0):
+		for x: int in range(minimum.x, maximum.x):
+			for z: int in range(minimum.z, maximum.z):
+				for y: int in range(-floor_depth, 0):
 					var cell: Vector3i = Vector3i(x, y, z)
 					if get_block(cell) != Block.AIR:
 						cells.append(cell)
@@ -299,23 +329,23 @@ func solid_cells() -> Array[Vector3i]:
 		for index: int in range(CHUNK_VOLUME):
 			if data[index] == Block.AIR:
 				continue
-			var cell: Vector3i = cell_in_chunk(chunk, index)
+			var cell: Vector3i = cell_in_chunk(chunk, index, minimum)
 			if _baseline(cell) == Block.AIR:
 				cells.append(cell)
 	return cells
 
 
-static func chunk_for(cell: Vector3i) -> Vector3i:
-	var local: Vector3i = cell - MIN_CELL
+static func chunk_for(cell: Vector3i, origin: Vector3i = MIN_CELL) -> Vector3i:
+	var local: Vector3i = cell - origin
 	return Vector3i(local.x >> 5, local.y >> 5, local.z >> 5)
 
 
-static func cell_in_chunk(chunk: Vector3i, index: int) -> Vector3i:
-	return MIN_CELL + chunk * DATA_CHUNK_SIZE + Vector3i(index & 31, index >> 10, (index >> 5) & 31)
+static func cell_in_chunk(chunk: Vector3i, index: int, origin: Vector3i = MIN_CELL) -> Vector3i:
+	return origin + chunk * DATA_CHUNK_SIZE + Vector3i(index & 31, index >> 10, (index >> 5) & 31)
 
 
-static func _local_index(cell: Vector3i) -> int:
-	var local: Vector3i = cell - MIN_CELL
+func _local_index(cell: Vector3i) -> int:
+	var local: Vector3i = cell - minimum
 	return ((local.y & 31) << 10) + ((local.z & 31) << 5) + (local.x & 31)
 
 
@@ -329,7 +359,7 @@ func chunk_deltas() -> Dictionary[Vector3i, PackedByteArray]:
 		var records: PackedByteArray = PackedByteArray()
 		var data: PackedByteArray = _chunks[chunk]
 		for index: int in range(CHUNK_VOLUME):
-			if data[index] != _baseline(cell_in_chunk(chunk, index)):
+			if data[index] != _baseline(cell_in_chunk(chunk, index, minimum)):
 				records.append(index & 255)
 				records.append(index >> 8)
 				records.append(data[index])
@@ -338,12 +368,20 @@ func chunk_deltas() -> Dictionary[Vector3i, PackedByteArray]:
 
 
 func restore_chunks(
-	flat: bool, chunks: Dictionary[Vector3i, PackedByteArray], structures: Array = []
+	flat: bool, chunks: Dictionary[Vector3i, PackedByteArray], structures: Array = [],
+	low: Vector3i = MIN_CELL, high: Vector3i = MAX_CELL, depth: int = 4
 ) -> bool:
 	# Validate everything before mutating the live rules.
+	if not valid_dimensions(low, high, depth) or chunks.size() > MAX_CHUNKS:
+		return false
+	var candidate: VoxelWorldData = VoxelWorldData.new()
+	candidate.minimum = low
+	candidate.maximum = high
+	candidate.floor_depth = depth
+	candidate._flat = flat
 	var placeholders: Dictionary[Vector3i, bool] = {}
 	for chunk: Vector3i in chunks:
-		if chunk.x not in [0, 1] or chunk.y not in [0, 1] or chunk.z not in [0, 1]:
+		if not candidate.valid_chunk(chunk):
 			return false
 		var records: PackedByteArray = chunks[chunk]
 		if records.is_empty() or records.size() % 3 != 0 or records.size() > CHUNK_VOLUME * 3:
@@ -352,10 +390,10 @@ func restore_chunks(
 		for offset: int in range(0, records.size(), 3):
 			var index: int = records.decode_u16(offset)
 			var block: int = records[offset + 2]
-			var cell: Vector3i = cell_in_chunk(chunk, index)
+			var cell: Vector3i = cell_in_chunk(chunk, index, low)
 			if index >= CHUNK_VOLUME or index <= previous or block > Block.BELT_DOWN_EAST:
 				return false
-			if block == Block.BEDROCK or (flat and cell.y == -4):
+			if not candidate.is_in_bounds(cell) or block == Block.BEDROCK or (flat and cell.y == -depth):
 				return false
 			previous = index
 			if block == Block.STRUCTURE:
@@ -363,7 +401,8 @@ func restore_chunks(
 	var owners: Dictionary[Vector3i, int] = {}
 	var instances: Dictionary[int, Dictionary] = {}
 	var next_id: int = 1
-	if structures.size() > (64 * 64 * 64) / 27.0:
+	var extent: Vector3i = high - low
+	if structures.size() > float(extent.x * extent.y * extent.z) / 27.0:
 		return false
 	for value: Variant in structures:
 		if not value is Dictionary:
@@ -377,10 +416,10 @@ func restore_chunks(
 			return false
 		var id: int = row["id"]
 		var anchor: Vector3i = row["anchor"]
-		if instances.has(id) or not is_in_bounds(anchor):
+		if instances.has(id) or not candidate.is_in_bounds(anchor):
 			return false
 		for cell: Vector3i in structure_footprint(anchor):
-			if not is_in_bounds(cell) or owners.has(cell) or not placeholders.has(cell):
+			if not candidate.is_in_bounds(cell) or owners.has(cell) or not placeholders.has(cell):
 				return false
 			owners[cell] = id
 		instances[id] = {"id": id, "anchor": anchor, "block": Block.STRUCTURE, "rotation": row["rotation"]}
@@ -388,33 +427,32 @@ func restore_chunks(
 	if owners.size() != placeholders.size():
 		return false
 	# Validate geometry in an independent world before replacing live state.
-	var candidate: VoxelWorldData = VoxelWorldData.new()
-	candidate._flat = flat
 	for chunk: Vector3i in chunks:
 		var records: PackedByteArray = chunks[chunk]
 		for offset: int in range(0, records.size(), 3):
-			candidate._set_block(cell_in_chunk(chunk, records.decode_u16(offset)), records[offset + 2])
+			candidate._set_block(cell_in_chunk(chunk, records.decode_u16(offset), low), records[offset + 2])
 	for cell: Vector3i in candidate.solid_cells():
 		if is_slope(candidate.get_block(cell)) and not candidate._geometry_error(cell, candidate.get_block(cell)).is_empty():
 			return false
-	_chunks.clear()
-	_differences.clear()
+	minimum = low
+	maximum = high
+	floor_depth = depth
+	_chunks = candidate._chunks
+	_differences = candidate._differences
 	_structure_cells = owners
 	_structures = instances
 	_next_structure_id = next_id
 	_flat = flat
-	_block_count = 64 * 64 * 4 if flat else 0
-	for chunk: Vector3i in chunks:
-		var records: PackedByteArray = chunks[chunk]
-		for offset: int in range(0, records.size(), 3):
-			_set_block(cell_in_chunk(chunk, records.decode_u16(offset)), records[offset + 2])
+	_block_count = candidate._block_count + (extent.x * extent.z * depth if flat else 0)
 	world_reset.emit()
 	return true
 
 
 func _baseline(cell: Vector3i) -> int:
-	if not _flat:
+	if not _flat or not is_in_bounds(cell):
 		return Block.AIR
+	if cell.y == -floor_depth:
+		return Block.BEDROCK
 	match cell.y:
 		-1: return Block.GRASS
 		-2: return Block.DIRT
@@ -427,12 +465,12 @@ func _set_block(cell: Vector3i, block: int) -> void:
 	var previous: int = get_block(cell)
 	if previous == block:
 		return
-	var chunk: Vector3i = chunk_for(cell)
+	var chunk: Vector3i = chunk_for(cell, minimum)
 	if not _chunks.has(chunk):
 		var initial: PackedByteArray = PackedByteArray()
 		initial.resize(CHUNK_VOLUME)
 		for index: int in range(CHUNK_VOLUME):
-			initial[index] = _baseline(cell_in_chunk(chunk, index))
+			initial[index] = _baseline(cell_in_chunk(chunk, index, minimum))
 		_chunks[chunk] = initial
 		_differences[chunk] = 0
 	var baseline: int = _baseline(cell)
@@ -448,11 +486,11 @@ func spawn_above_world(preferred: Vector3, body_size: Vector3) -> Vector3:
 	# Respawn above the highest occupied cell in the body's entire footprint.
 	# Immutable bedrock guarantees support, including when the surface was mined.
 	var spawn: Vector3 = preferred
-	spawn.x = clampf(spawn.x, float(MIN_CELL.x) * CELL_SIZE + body_size.x,
-		float(MAX_CELL.x) * CELL_SIZE - body_size.x)
-	spawn.z = clampf(spawn.z, float(MIN_CELL.z) * CELL_SIZE + body_size.z,
-		float(MAX_CELL.z) * CELL_SIZE - body_size.z)
-	var highest_top: float = float(MIN_CELL.y) * CELL_SIZE
+	spawn.x = clampf(spawn.x, float(minimum.x) * CELL_SIZE + body_size.x,
+		float(maximum.x) * CELL_SIZE - body_size.x)
+	spawn.z = clampf(spawn.z, float(minimum.z) * CELL_SIZE + body_size.z,
+		float(maximum.z) * CELL_SIZE - body_size.z)
+	var highest_top: float = float(minimum.y) * CELL_SIZE
 	for cell: Vector3i in solid_cells():
 		var bounds: AABB = block_bounds(cell, get_block(cell))
 		if (

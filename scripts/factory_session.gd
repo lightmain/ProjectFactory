@@ -78,7 +78,7 @@ func advance_autosave(delta: float) -> void:
 		return
 	_autosave_seconds = 0.0
 	var save_name: String = "%s_自动_%s" % [_default_save_name(), SaveGameStore.new_id().substr(0, 6)]
-	if not store.save_named(game.save_state(), save_name, false, "auto", retention):
+	if not store.save_named(game.save_state(true), save_name, false, "auto", retention):
 		game.hud.show_build_notice("自动保存失败：" + store.last_error)
 
 
@@ -141,7 +141,7 @@ func save_game(save_name: String = "", overwrite: bool = false) -> bool:
 		return false
 	if save_name.is_empty():
 		save_name = _default_save_name()
-	if not store.save_named(game.save_state(), save_name, overwrite):
+	if not store.save_named(game.save_state(true), save_name, overwrite):
 		menu.set_message(store.last_error, true)
 		return false
 	_show_menu()
@@ -168,7 +168,7 @@ func save_and_return(overwrite_manual: bool = false) -> bool:
 			if record["name"] == "退出存档" and record["kind"] != "exit":
 				menu.confirm_overwrite("退出存档", func() -> void: save_and_return(true))
 				return false
-	if not store.save_named(game.save_state(), "退出存档", true, "exit"):
+	if not store.save_named(game.save_state(true), "退出存档", true, "exit"):
 		menu.set_message(store.last_error, true)
 		return false
 	_remove_game()

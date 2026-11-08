@@ -2,7 +2,7 @@ class_name SessionSnapshot
 extends RefCounted
 ## Fully validated, independent rules. No live nodes are touched during decoding.
 
-const FORMAT_VERSION: int = 3
+const FORMAT_VERSION: int = 4
 const GENERATOR_VERSION: int = 1
 
 var world: VoxelWorldData = VoxelWorldData.new()
@@ -21,15 +21,25 @@ var world_name: String = "新世界"
 static func decode(state: Dictionary) -> SessionSnapshot:
 	if not SnapshotValues.integer(state.get("version"), 1, FORMAT_VERSION) or (
 		not SnapshotValues.integer(state.get("generator"), GENERATOR_VERSION, GENERATOR_VERSION)
-		or state.get("minimum") != VoxelWorldData.MIN_CELL
-		or state.get("maximum") != VoxelWorldData.MAX_CELL
+		or not state.get("minimum") is Vector3i or not state.get("maximum") is Vector3i
 		or not state.get("flat") is bool or not state.get("chunks") is Dictionary
 		or not state.get("logistics") is Dictionary or not state.get("inventory") is Array
 		or not state.get("player") is Dictionary
 	):
 		return null
 	var chunk_values: Dictionary = state["chunks"]
-	if chunk_values.size() > 8:
+	var version: int = state["version"]
+	var low: Vector3i = state["minimum"]
+	var high: Vector3i = state["maximum"]
+	var depth: int = 4
+	if version < 4:
+		if low != VoxelWorldData.MIN_CELL or high != VoxelWorldData.MAX_CELL:
+			return null
+	else:
+		if not SnapshotValues.integer(state.get("floor_depth"), 1, 4):
+			return null
+		depth = state["floor_depth"]
+	if not VoxelWorldData.valid_dimensions(low, high, depth) or chunk_values.size() > VoxelWorldData.MAX_CHUNKS:
 		return null
 	var chunks: Dictionary[Vector3i, PackedByteArray] = {}
 	for key: Variant in chunk_values:
@@ -48,9 +58,10 @@ static func decode(state: Dictionary) -> SessionSnapshot:
 			return null
 	var flat: bool = state["flat"]
 	var logistics_state: Dictionary = state["logistics"]
+	if version < 4 and not logistics_state.get("machines") is Array:
+		return null
 	var inventory_state: Array = state["inventory"]
 	var structures: Array = []
-	var version: int = state["version"]
 	if version >= 2 or state.has("structures"):
 		if not state.get("structures") is Array:
 			return null
@@ -63,7 +74,7 @@ static func decode(state: Dictionary) -> SessionSnapshot:
 			for offset: int in range(2, records.size(), 3):
 				if records[offset] > (VoxelWorldData.Block.CHEST if version == 1 else VoxelWorldData.Block.STRUCTURE):
 					return null
-	if not result.world.restore_chunks(flat, chunks, structures):
+	if not result.world.restore_chunks(flat, chunks, structures, low, high, depth):
 		return null
 	result.logistics.bind_world(result.world)
 	if not result.logistics.restore_state(logistics_state) or (
