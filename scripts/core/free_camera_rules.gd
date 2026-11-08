@@ -77,7 +77,7 @@ static func move_linear(
 	travel = minf(travel, maxf(0, sphere_exit))
 	var end: Vector3 = start + direction * travel
 	var sweep: AABB = AABB(start.min(end), start.max(end) - start.min(end)).grow(half_size)
-	var first: Vector3i = VoxelWorldData.world_to_cell(sweep.position).max(VoxelWorldData.MIN_CELL)
+	var first: Vector3i = (VoxelWorldData.world_to_cell(sweep.position) + Vector3i.DOWN).max(VoxelWorldData.MIN_CELL)
 	var last: Vector3i = VoxelWorldData.world_to_cell(sweep.end).min(VoxelWorldData.MAX_CELL - Vector3i.ONE)
 	for x: int in range(first.x, last.x + 1):
 		for y: int in range(first.y, last.y + 1):
@@ -85,6 +85,11 @@ static func move_linear(
 				var cell: Vector3i = Vector3i(x, y, z)
 				var block: int = world.get_block(cell)
 				if block == VoxelWorldData.Block.AIR:
+					continue
+				if VoxelWorldData.is_slope(block):
+					var hit: VoxelHit = VoxelRaycast.cast_block(cell, block, start, direction, travel, half_size)
+					if hit != null:
+						travel = minf(travel, maxf(0, hit.distance - 0.001))
 					continue
 				var entry: float = _ray_entry(
 					VoxelWorldData.block_bounds(cell, block).grow(half_size), start, direction
@@ -119,7 +124,7 @@ static func _axis_motion(
 	var end: Vector3 = position
 	end[axis] += motion
 	var sweep: AABB = AABB(position.min(end), position.max(end) - position.min(end)).grow(half_size)
-	var first: Vector3i = VoxelWorldData.world_to_cell(sweep.position).max(VoxelWorldData.MIN_CELL)
+	var first: Vector3i = (VoxelWorldData.world_to_cell(sweep.position) + Vector3i.DOWN).max(VoxelWorldData.MIN_CELL)
 	var last: Vector3i = VoxelWorldData.world_to_cell(sweep.end).min(VoxelWorldData.MAX_CELL - Vector3i.ONE)
 	var travel: float = absf(motion)
 	var direction_sign: float = signf(motion)
@@ -129,6 +134,13 @@ static func _axis_motion(
 				var cell: Vector3i = Vector3i(x, y, z)
 				var block: int = world.get_block(cell)
 				if block == VoxelWorldData.Block.AIR:
+					continue
+				if VoxelWorldData.is_slope(block):
+					var ray: Vector3 = Vector3.ZERO
+					ray[axis] = direction_sign
+					var hit: VoxelHit = VoxelRaycast.cast_block(cell, block, position, ray, travel, half_size)
+					if hit != null:
+						travel = minf(travel, maxf(0, hit.distance - 0.001))
 					continue
 				var bounds: AABB = VoxelWorldData.block_bounds(cell, block).grow(half_size)
 				var overlaps: bool = true

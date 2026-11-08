@@ -4,4 +4,5 @@ extends RefCounted
 
 var cell: Vector3i
 var direction: Vector3i
+var block: int = VoxelWorldData.Block.BELT
 var ores: Array[LogisticsOre] = []

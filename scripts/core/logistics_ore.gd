@@ -18,9 +18,13 @@ func copy() -> LogisticsOre:
 	return snapshot
 
 
-func surface_position(cell: Vector3i, outgoing: Vector3i) -> Vector3:
+func surface_position(cell: Vector3i, outgoing: Vector3i, block: int = VoxelWorldData.Block.BELT) -> Vector3:
 	var center: Vector3 = VoxelWorldData.cell_center(cell)
 	center.y = float(cell.y) * VoxelWorldData.CELL_SIZE + VoxelWorldData.BELT_HEIGHT
+	if VoxelWorldData.is_slope(block):
+		var position: Vector3 = center + Vector3(outgoing) * ((progress - 0.5) * VoxelWorldData.CELL_SIZE)
+		position.y += VoxelWorldData.slope_elevation(cell, block, position)
+		return position
 	if incoming_direction == outgoing:
 		return center + Vector3(outgoing) * ((progress - 0.5) * VoxelWorldData.CELL_SIZE)
 	if progress < 0.5:

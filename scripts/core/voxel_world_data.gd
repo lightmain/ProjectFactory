@@ -5,7 +5,11 @@ extends RefCounted
 signal cell_changed(cell: Vector3i)
 signal world_reset
 
-enum Block { AIR, GRASS, DIRT, STONE, BEDROCK, MINER, BELT, CHEST, STRUCTURE }
+enum Block {
+	AIR, GRASS, DIRT, STONE, BEDROCK, MINER, BELT, CHEST, STRUCTURE,
+	BELT_UP, BELT_UP_WEST, BELT_UP_NORTH, BELT_UP_EAST,
+	BELT_DOWN, BELT_DOWN_WEST, BELT_DOWN_NORTH, BELT_DOWN_EAST,
+}
 
 const CELL_SIZE: float = 0.5
 const BELT_HEIGHT: float = 0.08
@@ -14,6 +18,7 @@ const MAX_CELL: Vector3i = Vector3i(32, 60, 32)
 const DATA_CHUNK_SIZE: int = 32
 const CHUNK_VOLUME: int = DATA_CHUNK_SIZE * DATA_CHUNK_SIZE * DATA_CHUNK_SIZE
 const MAX_STRUCTURE_ID: int = 2147483646
+const SLOPE_DIRECTIONS: Array[Vector3i] = [Vector3i.BACK, Vector3i.LEFT, Vector3i.FORWARD, Vector3i.RIGHT]
 
 var _chunks: Dictionary[Vector3i, PackedByteArray] = {}
 var _differences: Dictionary[Vector3i, int] = {}
@@ -72,6 +77,8 @@ func structure_placement_error(anchor: Vector3i, occupied: AABB = AABB()) -> Str
 			return "超出世界边界"
 		if get_block(cell) != Block.AIR:
 			return "该位置已被占用"
+		if not _geometry_error(cell, Block.STONE).is_empty():
+			return "与斜坡实体相交"
 	if occupied.has_volume() and structure_bounds(anchor).intersects(occupied):
 		return "不能放在玩家所在位置"
 	return ""
@@ -117,10 +124,114 @@ static func block_bounds(cell: Vector3i, block: int) -> AABB:
 	var bounds: AABB = cell_bounds(cell)
 	if block == Block.BELT:
 		bounds.size.y = BELT_HEIGHT
+	elif is_slope(block):
+		bounds.size.y = CELL_SIZE + BELT_HEIGHT
 	return bounds
 
 
+static func is_slope(block: int) -> bool:
+	return block >= Block.BELT_UP and block <= Block.BELT_DOWN_EAST
+
+
+static func is_belt(block: int) -> bool:
+	return block == Block.BELT or is_slope(block)
+
+
+static func oriented_slope(tool: int, rotation: int) -> int:
+	return tool + posmod(rotation, 4) if tool in [Block.BELT_UP, Block.BELT_DOWN] else tool
+
+
+static func slope_direction(block: int) -> Vector3i:
+	return SLOPE_DIRECTIONS[(block - Block.BELT_UP) % 4] if is_slope(block) else Vector3i.ZERO
+
+
+static func slope_rise(block: int) -> int:
+	return (1 if block < Block.BELT_DOWN else -1) if is_slope(block) else 0
+
+
+static func inlet_step(block: int) -> int:
+	return 1 if is_slope(block) and slope_rise(block) < 0 else 0
+
+
+static func outlet_step(block: int) -> int:
+	return 1 if is_slope(block) and slope_rise(block) > 0 else 0
+
+
+static func slope_elevation(cell: Vector3i, block: int, point: Vector3) -> float:
+	var progress: float = 0.5 + (point - cell_center(cell)).dot(Vector3(slope_direction(block))) / CELL_SIZE
+	return (progress if slope_rise(block) > 0 else 1.0 - progress) * CELL_SIZE
+
+
+static func block_intersects_bounds(cell: Vector3i, block: int, other: AABB) -> bool:
+	var bounds: AABB = block_bounds(cell, block)
+	if not bounds.intersects(other):
+		return false
+	if not is_slope(block):
+		return true
+	var overlap: AABB = bounds.intersection(other)
+	var low: float = INF
+	var high: float = -INF
+	for x: float in [overlap.position.x, overlap.end.x]:
+		for z: float in [overlap.position.z, overlap.end.z]:
+			var elevation: float = float(cell.y) * CELL_SIZE + slope_elevation(cell, block, Vector3(x, 0, z))
+			low = minf(low, elevation)
+			high = maxf(high, elevation + BELT_HEIGHT)
+	return overlap.position.y < high and overlap.end.y > low
+
+
+func placement_error(cell: Vector3i, block: int, occupied: AABB = AABB()) -> String:
+	if block < Block.GRASS or block > Block.BELT_DOWN_EAST or block in [Block.BEDROCK, Block.STRUCTURE]:
+		return "无效方块类型"
+	if not is_in_bounds(cell):
+		return "超出世界边界"
+	if get_block(cell) != Block.AIR:
+		return "该位置已被占用"
+	var reason: String = _geometry_error(cell, block)
+	if not reason.is_empty():
+		return reason
+	if occupied.has_volume() and block_intersects_bounds(cell, block, occupied):
+		return "不能放在玩家所在位置"
+	return ""
+
+
+func _geometry_error(cell: Vector3i, block: int) -> String:
+	if block_bounds(cell, block).end.y > float(MAX_CELL.y) * CELL_SIZE:
+		return "超出世界边界"
+	# Slopes stay within their X/Z cell and protrude only into the cell above.
+	for other_cell: Vector3i in [cell + Vector3i.UP, cell + Vector3i.DOWN]:
+		var other: int = get_block(other_cell)
+		if other == Block.AIR or (not is_slope(block) and not is_slope(other)):
+			continue
+		if blocks_intersect(cell, block, other_cell, other):
+			return "与斜坡实体相交"
+	return ""
+
+
+static func blocks_intersect(cell: Vector3i, block: int, other_cell: Vector3i, other: int) -> bool:
+	if not block_bounds(cell, block).intersects(block_bounds(other_cell, other)):
+		return false
+	if is_slope(block) and is_slope(other):
+		var low: float = INF
+		var high: float = -INF
+		var bounds: AABB = cell_bounds(cell)
+		for x: float in [bounds.position.x, bounds.end.x]:
+			for z: float in [bounds.position.z, bounds.end.z]:
+				var point: Vector3 = Vector3(x, 0, z)
+				var difference: float = float(cell.y - other_cell.y) * CELL_SIZE + (
+					slope_elevation(cell, block, point) - slope_elevation(other_cell, other, point)
+				)
+				low = minf(low, difference)
+				high = maxf(high, difference)
+		return low < BELT_HEIGHT and high > -BELT_HEIGHT
+	return block_intersects_bounds(
+		cell if is_slope(block) else other_cell, block if is_slope(block) else other,
+		block_bounds(other_cell if is_slope(block) else cell, other if is_slope(block) else block)
+	)
+
+
 static func block_name(block: int) -> String:
+	if is_slope(block):
+		return "Belt up 45°" if slope_rise(block) > 0 else "Belt down 45°"
 	match block:
 		Block.GRASS:
 			return "Grass"
@@ -242,7 +353,7 @@ func restore_chunks(
 			var index: int = records.decode_u16(offset)
 			var block: int = records[offset + 2]
 			var cell: Vector3i = cell_in_chunk(chunk, index)
-			if index >= CHUNK_VOLUME or index <= previous or block > Block.STRUCTURE:
+			if index >= CHUNK_VOLUME or index <= previous or block > Block.BELT_DOWN_EAST:
 				return false
 			if block == Block.BEDROCK or (flat and cell.y == -4):
 				return false
@@ -276,6 +387,16 @@ func restore_chunks(
 		next_id = maxi(next_id, id + 1)
 	if owners.size() != placeholders.size():
 		return false
+	# Validate geometry in an independent world before replacing live state.
+	var candidate: VoxelWorldData = VoxelWorldData.new()
+	candidate._flat = flat
+	for chunk: Vector3i in chunks:
+		var records: PackedByteArray = chunks[chunk]
+		for offset: int in range(0, records.size(), 3):
+			candidate._set_block(cell_in_chunk(chunk, records.decode_u16(offset)), records[offset + 2])
+	for cell: Vector3i in candidate.solid_cells():
+		if is_slope(candidate.get_block(cell)) and not candidate._geometry_error(cell, candidate.get_block(cell)).is_empty():
+			return false
 	_chunks.clear()
 	_differences.clear()
 	_structure_cells = owners
@@ -368,11 +489,7 @@ func break_block(cell: Vector3i) -> bool:
 func place_block(cell: Vector3i, block: int, occupied_bounds: AABB = AABB()) -> bool:
 	if block == Block.STRUCTURE:
 		return place_structure(cell, 0, occupied_bounds)
-	if block not in [Block.GRASS, Block.DIRT, Block.STONE, Block.MINER, Block.BELT, Block.CHEST]:
-		return false
-	if not is_in_bounds(cell) or get_block(cell) != Block.AIR:
-		return false
-	if occupied_bounds.has_volume() and block_bounds(cell, block).intersects(occupied_bounds):
+	if not placement_error(cell, block, occupied_bounds).is_empty():
 		return false
 	_set_block(cell, block)
 	cell_changed.emit(cell)

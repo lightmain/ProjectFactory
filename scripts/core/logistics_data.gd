@@ -32,7 +32,7 @@ var _sample_solves: int = 0
 
 
 static func is_machine(block: int) -> bool:
-	return block in [VoxelWorldData.Block.MINER, VoxelWorldData.Block.BELT, VoxelWorldData.Block.CHEST]
+	return block in [VoxelWorldData.Block.MINER, VoxelWorldData.Block.CHEST] or VoxelWorldData.is_belt(block)
 
 
 func bind_world(world: VoxelWorldData, interval: float = 1.0, amount: int = 1) -> void:
@@ -103,6 +103,8 @@ func set_direction(cell: Vector3i, direction: Vector3i) -> bool:
 	var machine: LogisticsMachine = _topology.machines[index]
 	if machine.direction == direction:
 		return true
+	if VoxelWorldData.is_slope(machine.block):
+		return false
 	machine.direction = direction
 	_topology.dirty = true
 	_version += 1
@@ -138,6 +140,7 @@ func sample_belts(extra_time: float = 0.0) -> Array[LogisticsOreQueue]:
 		var queue: LogisticsOreQueue = LogisticsOreQueue.new()
 		queue.cell = cached.cell
 		queue.direction = cached.direction
+		queue.block = cached.block
 		for ore: LogisticsOre in cached.ores:
 			queue.ores.append(ore.copy())
 		result.append(queue)
@@ -219,20 +222,11 @@ func restore_state(state: Dictionary) -> bool:
 	topology.outgoing.assign(outgoing)
 	topology.inputs.assign(inputs)
 	for target: int in range(rows.size()):
-		var machine: LogisticsMachine = topology.machines[target]
-		var facing: Vector3i = machine.settled_direction
-		var side: Vector3i = Vector3i(-facing.z, 0, facing.x)
-		var ports: Array[Vector3i] = [facing, side, -side]
 		for port: int in range(3):
 			var source: int = topology.inputs[target * 3 + port]
 			if source < 0:
 				continue
-			if machine.block == VoxelWorldData.Block.MINER or (
-				machine.block == VoxelWorldData.Block.CHEST and port != 0
-			) or topology.outgoing[source] != target or (
-				topology.cells[source] != topology.cells[target] - ports[port]
-				or topology.machines[source].settled_direction != ports[port]
-			):
+			if topology.outgoing[source] != target or not topology.connects(source, target, port):
 				return false
 		var destination: int = topology.outgoing[target]
 		if destination >= 0 and target not in topology.inputs.slice(destination * 3, destination * 3 + 3):
@@ -296,6 +290,7 @@ func _ensure_sample(extra_time: float) -> void:
 		queue.ores.clear()
 		queue.cell = _topology.cells[index]
 		queue.direction = machine.settled_direction
+		queue.block = machine.block
 		for ore: LogisticsOre in machine.belt_ores:
 			copy_work += 1
 			queue.ores.append(ore.copy())

@@ -50,7 +50,7 @@ func transfer(topology: LogisticsTopology, tick: int) -> void:
 				continue
 			if _available(topology, source, tick) <= 0:
 				if (
-					topology.machines[source].block == VoxelWorldData.Block.BELT
+					VoxelWorldData.is_belt(topology.machines[source].block)
 					and topology.machines[source].quantity > 0
 				):
 					break
@@ -84,7 +84,7 @@ func transfer(topology: LogisticsTopology, tick: int) -> void:
 		source.quantity -= amounts[target]
 		source.eligible_quantity -= amounts[target]
 		source.last_output_tick = tick
-		if source.block == VoxelWorldData.Block.BELT:
+		if VoxelWorldData.is_belt(source.block):
 			# A belt has at most two ores; this bounded shift is constant work.
 			moved_ores[target] = source.belt_ores.pop_front()
 	for target: int in range(size):
@@ -93,7 +93,7 @@ func transfer(topology: LogisticsTopology, tick: int) -> void:
 			continue
 		var machine: LogisticsMachine = topology.machines[target]
 		machine.quantity += amounts[target]
-		if machine.block != VoxelWorldData.Block.BELT:
+		if not VoxelWorldData.is_belt(machine.block):
 			continue
 		var incoming: Vector3i = topology.machines[sources[target]].settled_direction
 		var ore: LogisticsOre = moved_ores[target]
@@ -154,7 +154,7 @@ static func _available(topology: LogisticsTopology, index: int, tick: int) -> in
 	var machine: LogisticsMachine = topology.machines[index]
 	if machine.last_output_tick == tick:
 		return 0
-	if machine.block == VoxelWorldData.Block.BELT:
+	if VoxelWorldData.is_belt(machine.block):
 		if machine.belt_ores.is_empty() or machine.belt_ores[0].progress < 1.0 - 1e-9:
 			return 0
 		return mini(machine.eligible_quantity, 1)
@@ -162,4 +162,4 @@ static func _available(topology: LogisticsTopology, index: int, tick: int) -> in
 
 
 static func _full(machine: LogisticsMachine) -> bool:
-	return machine.block == VoxelWorldData.Block.BELT and machine.quantity == 2
+	return VoxelWorldData.is_belt(machine.block) and machine.quantity == 2

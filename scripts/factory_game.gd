@@ -29,6 +29,7 @@ var _preview_normal: Vector3i
 var _preview_anchor: Vector3i
 var _preview_direction: Vector3i
 var _preview_occupied: Array[Vector3i] = []
+var _preview_camera_bounds: AABB
 var _preview_error: String = ""
 var _failure_seconds: float = 0.0
 var _idle_belt: BeltPlacement = BeltPlacement.new()
@@ -137,7 +138,8 @@ func _process(delta: float) -> void:
 		target_outline.scale = bounds.size / VoxelWorldData.CELL_SIZE
 	hud.update_status(
 		selected_block, hit, world_data, player.controls_enabled(), logistics_data, build_direction(),
-		belt_placement.active, belt_placement.locked_path.size(), free_camera.active
+		belt_placement.active, belt_placement.locked_path.size(), free_camera.active,
+		belt_placement.north_south_first
 	)
 
 
@@ -239,7 +241,7 @@ func _place_target() -> void:
 	if selected_block == VoxelWorldData.Block.BELT:
 		if belt_placement.active:
 			var surface_y: float = _overlapping_belt_surface()
-			if _belt_overlaps_camera(belt_placement.path):
+			if _belt_overlaps_camera(belt_placement.path, belt_placement.blocks):
 				_build_failed("无法在此建造")
 			elif surface_y > player.global_position.y and not _player_has_lift_clearance(surface_y):
 				_build_failed("无法在此建造")
@@ -265,25 +267,31 @@ func _place_target() -> void:
 			_build_failed("无法在此建造")
 		return
 	var cell: Vector3i = hit.adjacent_cell()
-	if free_camera.active and VoxelWorldData.block_bounds(cell, selected_block).intersects(
+	var block: int = placed_block()
+	if not _preview_error.is_empty() and _has_build_preview():
+		_build_failed(_preview_error)
+		return
+	if free_camera.active and VoxelWorldData.block_intersects_bounds(cell, block,
 		free_camera.occupied_bounds()
 	):
 		_build_failed("无法在此建造")
 		return
-	if world_data.place_block(cell, selected_block, player.occupied_bounds()):
+	if world_data.place_block(cell, block, player.occupied_bounds()):
 		if LogisticsData.is_machine(selected_block):
 			logistics_data.set_direction(cell, build_direction())
 	elif LogisticsData.is_machine(selected_block):
 		_build_failed(_preview_error)
 
 
-func _belt_overlaps_camera(cells: Array[Vector3i]) -> bool:
+func _belt_overlaps_camera(cells: Array[Vector3i], cell_blocks: Array[int] = []) -> bool:
 	if not free_camera.active:
 		return false
-	for cell: Vector3i in cells:
-		if world_data.get_block(cell) == VoxelWorldData.Block.AIR and VoxelWorldData.block_bounds(
-			cell, VoxelWorldData.Block.BELT
-		).intersects(free_camera.occupied_bounds()):
+	for index: int in range(cells.size()):
+		var cell: Vector3i = cells[index]
+		var block: int = cell_blocks[index] if index < cell_blocks.size() else VoxelWorldData.Block.BELT
+		if world_data.get_block(cell) == VoxelWorldData.Block.AIR and VoxelWorldData.block_intersects_bounds(
+			cell, block, free_camera.occupied_bounds()
+		):
 			return true
 	return false
 
@@ -291,11 +299,23 @@ func _belt_overlaps_camera(cells: Array[Vector3i]) -> bool:
 func _overlapping_belt_surface() -> float:
 	var occupied: AABB = player.occupied_bounds()
 	var highest: float = player.global_position.y
-	for cell: Vector3i in belt_placement.path:
+	for index: int in range(belt_placement.path.size()):
+		var cell: Vector3i = belt_placement.path[index]
 		if world_data.get_block(cell) != VoxelWorldData.Block.AIR:
 			continue
-		var bounds: AABB = VoxelWorldData.block_bounds(cell, VoxelWorldData.Block.BELT)
-		if bounds.intersects(occupied):
+		var block: int = belt_placement.blocks[index]
+		var bounds: AABB = VoxelWorldData.block_bounds(cell, block)
+		if not VoxelWorldData.block_intersects_bounds(cell, block, occupied):
+			continue
+		if VoxelWorldData.is_slope(block):
+			var overlap: AABB = bounds.intersection(occupied)
+			for x: float in [overlap.position.x, overlap.end.x]:
+				for z: float in [overlap.position.z, overlap.end.z]:
+					var surface: float = float(cell.y) * VoxelWorldData.CELL_SIZE + (
+						VoxelWorldData.slope_elevation(cell, block, Vector3(x, 0, z)) + VoxelWorldData.BELT_HEIGHT
+					)
+					highest = maxf(highest, surface)
+		else:
 			highest = maxf(highest, bounds.end.y)
 	return highest
 
@@ -309,6 +329,17 @@ func _player_has_lift_clearance(surface_y: float) -> bool:
 		Vector3(occupied.position.x, occupied.end.y, occupied.position.z),
 		Vector3(occupied.size.x, rise, occupied.size.z)
 	).grow(player.safe_margin)
+	for index: int in range(belt_placement.path.size()):
+		var cell: Vector3i = belt_placement.path[index]
+		var block: int = belt_placement.blocks[index]
+		# Initially overlapping new belts are the surfaces we lift onto.
+		# Other pending upper segments must not become a ceiling afterward.
+		if world_data.get_block(cell) != VoxelWorldData.Block.AIR or (
+			VoxelWorldData.block_intersects_bounds(cell, block, occupied)
+		):
+			continue
+		if VoxelWorldData.block_intersects_bounds(cell, block, headroom):
+			return false
 	var first: Vector3i = VoxelWorldData.world_to_cell(headroom.position)
 	var last: Vector3i = VoxelWorldData.world_to_cell(headroom.end)
 	for x: int in range(first.x, last.x + 1):
@@ -316,9 +347,9 @@ func _player_has_lift_clearance(surface_y: float) -> bool:
 			for z: int in range(first.z, last.z + 1):
 				var cell: Vector3i = Vector3i(x, y, z)
 				var block: int = world_data.get_block(cell)
-				if block != VoxelWorldData.Block.AIR and VoxelWorldData.block_bounds(
-					cell, block
-				).intersects(headroom):
+				if block != VoxelWorldData.Block.AIR and VoxelWorldData.block_intersects_bounds(
+					cell, block, headroom
+				):
 					return false
 	return player.can_raise_to(surface_y)
 
@@ -365,6 +396,7 @@ func _update_preview(hit: VoxelHit, force: bool = false) -> void:
 		return
 	var direction: Vector3i = build_direction()
 	var occupied: AABB = player.occupied_bounds()
+	var camera_bounds: AABB = free_camera.occupied_bounds() if free_camera.active else AABB()
 	var occupied_cells: Array[Vector3i] = []
 	if selected_block != VoxelWorldData.Block.BELT:
 		occupied_cells = _occupied_preview_cells(occupied)
@@ -375,7 +407,7 @@ func _update_preview(hit: VoxelHit, force: bool = false) -> void:
 	if not force and not _preview_dirty and has_hit == _preview_has_hit and (
 		not has_hit or (hit.cell == _preview_cell and hit.normal == _preview_normal)
 	) and (selected_block != VoxelWorldData.Block.STRUCTURE or anchor == _preview_anchor) and (
-		direction == _preview_direction and occupied_cells == _preview_occupied
+		direction == _preview_direction and occupied_cells == _preview_occupied and camera_bounds == _preview_camera_bounds
 	):
 		return
 	_preview_dirty = false
@@ -386,15 +418,17 @@ func _update_preview(hit: VoxelHit, force: bool = false) -> void:
 	_preview_anchor = anchor
 	_preview_direction = direction
 	_preview_occupied.assign(occupied_cells)
+	_preview_camera_bounds = camera_bounds
 	_preview_error = ""
 	if selected_block == VoxelWorldData.Block.BELT and belt_placement.active:
 		belt_placement.preview(hit, direction)
 		_preview_error = belt_placement.error
-		if _preview_error.is_empty() and _belt_overlaps_camera(belt_placement.path):
+		if _preview_error.is_empty() and _belt_overlaps_camera(belt_placement.path, belt_placement.blocks):
 			_preview_error = "无法在此建造"
 		build_preview.show_cells(
 			belt_placement.path, belt_placement.directions, selected_block, world_data,
-			not _preview_error.is_empty() or _failure_seconds > 0.0, belt_placement.locked_points
+			not _preview_error.is_empty() or _failure_seconds > 0.0, belt_placement.locked_points,
+			belt_placement.blocks
 		)
 	elif not has_hit:
 		build_preview.hide()
@@ -410,6 +444,7 @@ func _update_preview(hit: VoxelHit, force: bool = false) -> void:
 		build_preview.show_structure(anchor, direction, not _preview_error.is_empty())
 	else:
 		var cell: Vector3i = hit.adjacent_cell()
+		var preview_block: int = placed_block()
 		if selected_block == VoxelWorldData.Block.BELT:
 			_idle_belt.begin(hit, direction)
 			_preview_error = _idle_belt.error
@@ -424,36 +459,38 @@ func _update_preview(hit: VoxelHit, force: bool = false) -> void:
 		else:
 			_preview_error = _single_placement_error(cell, occupied)
 		build_preview.show_cells(
-			[cell], [direction], selected_block, world_data,
+			[cell], [direction], preview_block, world_data,
 			not _preview_error.is_empty() or _failure_seconds > 0.0
 		)
 	build_preview.set_invalid(not _preview_error.is_empty(), _failure_seconds > 0.0)
 
 
 func _single_placement_error(cell: Vector3i, occupied: AABB) -> String:
-	if not world_data.is_in_bounds(cell):
-		return "超出世界边界"
-	if world_data.get_block(cell) != VoxelWorldData.Block.AIR:
-		return "该位置已被占用"
-	if VoxelWorldData.block_bounds(cell, selected_block).intersects(occupied):
-		return "不能放在玩家所在位置"
-	if free_camera.active and VoxelWorldData.block_bounds(cell, selected_block).intersects(
+	var block: int = placed_block()
+	var reason: String = world_data.placement_error(cell, block, occupied)
+	if not reason.is_empty():
+		return reason
+	if free_camera.active and VoxelWorldData.block_intersects_bounds(cell, block,
 		free_camera.occupied_bounds()
 	):
 		return "无法在此建造"
 	return ""
 
 
+func placed_block() -> int:
+	return VoxelWorldData.oriented_slope(selected_block, _build_rotation)
+
+
 func _occupied_preview_cells(occupied: AABB) -> Array[Vector3i]:
 	# Cache actual collision cells, including the belt's thin top threshold.
 	var cells: Array[Vector3i] = []
-	var first: Vector3i = VoxelWorldData.world_to_cell(occupied.position)
+	var first: Vector3i = VoxelWorldData.world_to_cell(occupied.position) + Vector3i.DOWN
 	var last: Vector3i = VoxelWorldData.world_to_cell(occupied.end)
 	for x: int in range(first.x, last.x + 1):
 		for y: int in range(first.y, last.y + 1):
 			for z: int in range(first.z, last.z + 1):
 				var cell: Vector3i = Vector3i(x, y, z)
-				if VoxelWorldData.block_bounds(cell, selected_block).intersects(occupied):
+				if VoxelWorldData.block_intersects_bounds(cell, placed_block(), occupied):
 					cells.append(cell)
 	return cells
 
@@ -465,7 +502,10 @@ func _select_block(block: int) -> void:
 
 func _rotate_build() -> void:
 	if _has_build_preview():
-		_build_rotation = (_build_rotation + 1) % 4
+		if selected_block == VoxelWorldData.Block.BELT and belt_placement.active:
+			belt_placement.toggle_route_order()
+		else:
+			_build_rotation = (_build_rotation + 1) % 4
 		_preview_dirty = true
 
 

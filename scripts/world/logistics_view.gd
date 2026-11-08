@@ -71,11 +71,11 @@ func refresh_from_data(frame_offset: float = 0.0) -> void:
 		if not _visuals.has(cell):
 			_visuals[cell] = _create_visual(cell)
 		var visual: Node3D = _visuals[cell]
-		if _world.get_block(cell) == VoxelWorldData.Block.BELT:
+		if VoxelWorldData.is_belt(sample.block):
 			for ore: LogisticsOre in sample.ores:
 				item_render_pool.submit(ore.id, &"iron_ore", cell, Transform3D(
 					Basis.IDENTITY,
-					ore.surface_position(cell, sample.direction) + Vector3.UP * 0.04
+					ore.surface_position(cell, sample.direction, sample.block) + Vector3.UP * 0.04
 				))
 			continue
 		var count: int = _logistics.ore_count(cell)
@@ -113,21 +113,33 @@ func _create_visual(cell: Vector3i) -> Node3D:
 	arrow.name = "OutputArrow"
 	arrow.mesh = _arrow_mesh()
 	arrow.position.y = bounds.size.y * 0.5 + 0.003
+	if VoxelWorldData.is_slope(block):
+		arrow.position.y = VoxelWorldData.BELT_HEIGHT * 0.5 + 0.003
+		arrow.basis = arrow_facing(Vector3i.FORWARD, block)
 	arrow.material_override = _output_material
 	root.add_child(arrow)
-	_add_port(root, "Output", Vector3.FORWARD, _output_material, bounds.size.y)
+	var rise: float = float(VoxelWorldData.slope_rise(block)) * VoxelWorldData.CELL_SIZE * 0.5
+	var port_height: float = VoxelWorldData.BELT_HEIGHT if VoxelWorldData.is_slope(block) else bounds.size.y
+	_add_port(root, "Output", Vector3.FORWARD, _output_material, port_height, rise)
 	if block != VoxelWorldData.Block.MINER:
-		_add_port(root, "Input", Vector3.BACK, _input_material, bounds.size.y)
+		_add_port(root, "Input", Vector3.BACK, _input_material, port_height, -rise)
 	if block == VoxelWorldData.Block.BELT:
 		_add_port(root, "InputLeft", Vector3.LEFT, _input_material, bounds.size.y)
 		_add_port(root, "InputRight", Vector3.RIGHT, _input_material, bounds.size.y)
-	if block != VoxelWorldData.Block.BELT:
+	if not VoxelWorldData.is_belt(block):
 		for index: int in range(2):
 			var ore: MeshInstance3D = _create_ore("Ore%d" % (index + 1))
 			ore.position = Vector3(-0.12, bounds.size.y * 0.5 + 0.04, -0.10 + float(index) * 0.19)
 			ore.visible = false
 			root.add_child(ore)
 	return root
+
+
+static func arrow_facing(direction: Vector3i, block: int) -> Basis:
+	var facing: Basis = Basis(Vector3.UP, atan2(-float(direction.x), -float(direction.z)))
+	var shape: Basis = Basis.IDENTITY
+	shape.z.y = -float(VoxelWorldData.slope_rise(block))
+	return facing * shape
 
 
 func _create_ore(label: String) -> MeshInstance3D:
@@ -156,7 +168,7 @@ static func _arrow_mesh() -> ArrayMesh:
 
 
 static func _add_port(
-	root: Node3D, label: String, normal: Vector3, material: Material, height: float
+	root: Node3D, label: String, normal: Vector3, material: Material, height: float, elevation: float = 0.0
 ) -> void:
 	var port: MeshInstance3D = MeshInstance3D.new()
 	port.name = label
@@ -165,6 +177,7 @@ static func _add_port(
 	port.mesh = box
 	port.material_override = material
 	port.position = normal * 0.253
+	port.position.y = elevation
 	port.rotation.y = atan2(normal.x, normal.z)
 	root.add_child(port)
 

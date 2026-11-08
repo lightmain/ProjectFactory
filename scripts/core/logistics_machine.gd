@@ -32,7 +32,7 @@ func save_state() -> Dictionary:
 
 
 static func decode(state: Dictionary, time: float, tick: int) -> LogisticsMachine:
-	if not SnapshotValues.integer(state.get("block"), 5, 7) or (
+	if not SnapshotValues.integer(state.get("block"), 5, 16) or (
 		not SnapshotValues.direction(state.get("direction"))
 		or not SnapshotValues.direction(state.get("settled"))
 		or not SnapshotValues.integer(state.get("quantity"), 0, SnapshotValues.MAX_INTEGER)
@@ -48,6 +48,11 @@ static func decode(state: Dictionary, time: float, tick: int) -> LogisticsMachin
 	):
 		return null
 	var kind: int = state["block"]
+	if not LogisticsData.is_machine(kind) or (VoxelWorldData.is_slope(kind) and (
+		state["direction"] != VoxelWorldData.slope_direction(kind)
+		or state["settled"] != state["direction"]
+	)):
+		return null
 	var placed: float = state["placed"]
 	var mining_interval: float = state["interval"]
 	var mining_amount: int = state["amount"]
@@ -65,7 +70,7 @@ static func decode(state: Dictionary, time: float, tick: int) -> LogisticsMachin
 	if not result._valid_phase(float(tick) * LogisticsData.LOGIC_STEP):
 		return null
 	var rows: Array = state["ores"]
-	if rows.size() > 2 or (result.block != VoxelWorldData.Block.BELT and not rows.is_empty()):
+	if rows.size() > 2 or (not VoxelWorldData.is_belt(result.block) and not rows.is_empty()):
 		return null
 	var previous: float = 2.0
 	for value: Variant in rows:
@@ -79,13 +84,15 @@ static func decode(state: Dictionary, time: float, tick: int) -> LogisticsMachin
 			return null
 		var ore_id: int = row["id"]
 		var incoming: Vector3i = row["incoming"]
+		if VoxelWorldData.is_slope(kind) and incoming != result.settled_direction:
+			return null
 		var ore: LogisticsOre = LogisticsOre.new(ore_id, incoming)
 		ore.progress = row["progress"]
 		if previous < ore.progress + 0.5 - LogisticsData.TIME_EPSILON:
 			return null
 		previous = ore.progress
 		result.belt_ores.append(ore)
-	if result.block == VoxelWorldData.Block.BELT and result.quantity != rows.size():
+	if VoxelWorldData.is_belt(result.block) and result.quantity != rows.size():
 		return null
 	return result
 
@@ -110,6 +117,9 @@ func _valid_phase(boundary: float) -> bool:
 
 func _init(kind: int, placed_at: float, mining_interval: float, mining_amount: int) -> void:
 	block = kind
+	if VoxelWorldData.is_slope(block):
+		direction = VoxelWorldData.slope_direction(block)
+		settled_direction = direction
 	interval = mining_interval
 	amount = mining_amount
 	_placed_at = placed_at

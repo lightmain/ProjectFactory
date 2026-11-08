@@ -103,17 +103,37 @@ func rebuild() -> void:
 		var machine: LogisticsMachine = machines[target]
 		if machine.block == VoxelWorldData.Block.MINER:
 			continue
-		var direction: Vector3i = machine.settled_direction
-		var side: Vector3i = Vector3i(-direction.z, 0, direction.x)
-		var ports: Array[Vector3i] = [direction, side, -side]
-		var port_count: int = 3 if machine.block == VoxelWorldData.Block.BELT else 1
-		for port: int in range(port_count):
-			work += 1
-			var source: int = index_at(cells[target] - ports[port])
-			if source >= 0 and machines[source].settled_direction == ports[port]:
-				inputs[target * 3 + port] = source
-				outgoing[source] = target
+		for port: int in range(input_count(machine.block)):
+			var direction: Vector3i = port_direction(machine.settled_direction, port)
+			var base: Vector3i = cells[target] - direction + Vector3i.UP * VoxelWorldData.inlet_step(machine.block)
+			for height: int in range(2):
+				work += 1
+				var source: int = index_at(base + Vector3i.DOWN * height)
+				if source >= 0 and connects(source, target, port):
+					inputs[target * 3 + port] = source
+					outgoing[source] = target
+					break
 	dirty = false
+
+
+static func input_count(block: int) -> int:
+	return 0 if block == VoxelWorldData.Block.MINER else (3 if block == VoxelWorldData.Block.BELT else 1)
+
+
+static func port_direction(facing: Vector3i, port: int) -> Vector3i:
+	var side: Vector3i = Vector3i(-facing.z, 0, facing.x)
+	return facing if port == 0 else (side if port == 1 else -side)
+
+
+func connects(source: int, target: int, port: int) -> bool:
+	var machine: LogisticsMachine = machines[target]
+	if port >= input_count(machine.block):
+		return false
+	var direction: Vector3i = port_direction(machine.settled_direction, port)
+	return machines[source].settled_direction == direction and (
+		cells[source] + direction + Vector3i.UP * VoxelWorldData.outlet_step(machines[source].block)
+		== cells[target] + Vector3i.UP * VoxelWorldData.inlet_step(machine.block)
+	)
 
 
 static func _address(local: Vector3i) -> int:

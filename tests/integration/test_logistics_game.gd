@@ -248,9 +248,13 @@ func test_belt_two_clicks_and_c_keep_the_entire_preview_prefix() -> void:
 		assert_int(_game.world_data.get_block(cell)).is_equal(VoxelWorldData.Block.BELT)
 
 
-func test_failed_height_and_crossing_keys_preserve_start_and_show_bottom_notice() -> void:
+func test_insufficient_ramps_preserve_start_and_show_bottom_notice() -> void:
+	_game.player.set_physics_process(false)
+	_game.player.position = Vector3(0.25, 1.0, 1.25)
+	_game.player.camera.look_at(Vector3(0.25, 0, 0.25), Vector3.UP)
 	for z: int in range(VoxelWorldData.MIN_CELL.z, VoxelWorldData.MAX_CELL.z):
 		_game.world_data.place_block(Vector3i(1, 0, z), VoxelWorldData.Block.BELT)
+		_game.world_data.place_block(Vector3i(1, 1, z), VoxelWorldData.Block.STONE)
 	_key(KEY_5)
 	_click(MOUSE_BUTTON_RIGHT)
 	_game.player.camera.look_at(Vector3(1.75, 0, 0.25), Vector3.UP)
@@ -260,10 +264,10 @@ func test_failed_height_and_crossing_keys_preserve_start_and_show_bottom_notice(
 	var notice: Label = _game.hud.get_node_or_null("BuildNotice") as Label
 	assert_object(notice).is_not_null()
 	if notice != null:
-		assert_str(notice.text).is_equal("与现有传送带交叉")
+		assert_str(notice.text).is_equal("直线坡道不足，无法连接高度")
 		assert_bool(notice.visible).is_true()
-	_game.world_data.place_block(Vector3i(-2, 0, 0), VoxelWorldData.Block.STONE)
-	_game.player.camera.look_at(Vector3(-0.75, 0.5, 0.25), Vector3.UP)
+	_game.world_data.place_block(Vector3i(0, 1, 0), VoxelWorldData.Block.STONE)
+	_game.player.camera.look_at(Vector3(0.25, 1.0, 0.25), Vector3.UP)
 	_click(MOUSE_BUTTON_RIGHT)
 	assert_int(_game.world_data.get_block(Vector3i.ZERO)).is_equal(VoxelWorldData.Block.AIR)
 	_game.player.camera.look_at(Vector3(0.25, 0, 1.25), Vector3.UP)
@@ -308,13 +312,18 @@ func test_machine_ghost_follows_aim_without_collision_and_hides_in_inventory() -
 
 
 func test_already_invalid_preview_flashes_more_brightly_when_c_is_rejected() -> void:
+	_game.player.set_physics_process(false)
+	_game.player.position = Vector3(0.25, 1.0, 1.25)
+	_game.player.camera.look_at(Vector3(0.25, 0, 0.25), Vector3.UP)
 	for z: int in range(VoxelWorldData.MIN_CELL.z, VoxelWorldData.MAX_CELL.z):
 		_game.world_data.place_block(Vector3i(1, 0, z), VoxelWorldData.Block.BELT)
+		_game.world_data.place_block(Vector3i(1, 1, z), VoxelWorldData.Block.STONE)
 	_key(KEY_5)
 	_click(MOUSE_BUTTON_RIGHT)
 	_game.player.camera.look_at(Vector3(1.75, 0, 0.25), Vector3.UP)
 	await get_tree().process_frame
 	await get_tree().process_frame
+	assert_str(_game._preview_error).is_equal("直线坡道不足，无法连接高度")
 	var bodies: MultiMeshInstance3D = _game.get_node("BuildPreview/Bodies") as MultiMeshInstance3D
 	var material: StandardMaterial3D = bodies.material_override as StandardMaterial3D
 	var before: Color = material.albedo_color
@@ -477,7 +486,7 @@ func test_belt_build_with_no_headroom_preserves_route_and_player() -> void:
 
 func test_pending_ceiling_collision_cannot_allow_belt_lift_through_ceiling() -> void:
 	_game.player.set_physics_process(false)
-	_game.player.global_position = Vector3(0.25, 0, 1.25)
+	_game.player.global_position = Vector3(0.25, 0, 1.75)
 	_game.world_data.place_block(Vector3i(0, 0, 0), VoxelWorldData.Block.STONE)
 	_game.world_data.place_block(Vector3i(0, 0, 4), VoxelWorldData.Block.STONE)
 	_game.world_view.rebuild_pending()
@@ -489,8 +498,9 @@ func test_pending_ceiling_collision_cannot_allow_belt_lift_through_ceiling() -> 
 	_game.player.camera.look_at(Vector3(0.25, 0.5, 2.25), Vector3.UP)
 	_key(KEY_C)
 	assert_array(_game.belt_placement.locked_points).contains_exactly([Vector3i(0, 1, 4)])
+	assert_float(_game._overlapping_belt_surface()).is_greater(0.5)
 	# Commit in the same tick: the new ceiling has data but no collider yet.
-	_game.world_data.place_block(Vector3i(0, 4, 2), VoxelWorldData.Block.STONE)
+	_game.world_data.place_block(Vector3i(0, 4, 3), VoxelWorldData.Block.STONE)
 	_click(MOUSE_BUTTON_RIGHT)
 	assert_bool(_game.belt_placement.active).is_true()
 	assert_array(_game.belt_placement.locked_points).contains_exactly([Vector3i(0, 1, 4)])

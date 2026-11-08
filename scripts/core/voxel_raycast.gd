@@ -25,15 +25,26 @@ static func cast(
 	var distance: float = 0.0
 	var normal: Vector3i = Vector3i.ZERO
 	while distance <= max_distance:
+		var segment_end: float = minf(max_distance, minf(next_distance.x, minf(next_distance.y, next_distance.z)))
+		var nearest: VoxelHit
 		var block: int = world.get_block(cell)
 		if block != VoxelWorldData.Block.AIR:
-			if block != VoxelWorldData.Block.BELT:
-				return VoxelHit.new(cell, normal, distance, origin + ray * distance)
-			var hit: VoxelHit = _cast_bounds(
-				cell, VoxelWorldData.block_bounds(cell, block), origin, ray, max_distance
-			)
-			if hit != null:
-				return hit
+			if not VoxelWorldData.is_belt(block):
+				nearest = VoxelHit.new(cell, normal, distance, origin + ray * distance)
+			else:
+				nearest = cast_block(cell, block, origin, ray, segment_end)
+				if nearest != null and nearest.distance < distance - 0.000001:
+					nearest = null
+		var below: Vector3i = cell + Vector3i.DOWN
+		var below_block: int = world.get_block(below)
+		if VoxelWorldData.is_slope(below_block):
+			var lip: VoxelHit = cast_block(below, below_block, origin, ray, segment_end)
+			if lip != null and lip.distance >= distance - 0.000001 and (
+				nearest == null or lip.distance < nearest.distance
+			):
+				nearest = lip
+		if nearest != null:
+			return nearest
 		var axis: int = 0
 		if next_distance.y < next_distance.x:
 			axis = 1
@@ -45,6 +56,38 @@ static func cast(
 		normal[axis] = -step[axis]
 		next_distance[axis] += distance_step[axis]
 	return null
+
+
+static func cast_block(
+	cell: Vector3i, block: int, origin: Vector3, ray: Vector3, max_distance: float,
+	half_size: float = 0.0
+) -> VoxelHit:
+	var bounds: AABB = VoxelWorldData.block_bounds(cell, block).grow(half_size)
+	if not VoxelWorldData.is_slope(block):
+		return _cast_bounds(cell, bounds, origin, ray, max_distance)
+	var flat: AABB = VoxelWorldData.block_bounds(cell, VoxelWorldData.Block.BELT).grow(half_size)
+	var gradient: Vector3 = Vector3(VoxelWorldData.slope_direction(block)) * VoxelWorldData.slope_rise(block)
+	# Shear into flat plate coordinates. Parameter t remains world distance.
+	var transformed_origin: Vector3 = origin
+	transformed_origin.y -= VoxelWorldData.slope_elevation(cell, block, origin)
+	var transformed_ray: Vector3 = ray
+	transformed_ray.y -= gradient.dot(ray)
+	# The moving camera box extends along both the horizontal and vertical axes.
+	flat.position.y -= half_size
+	flat.size.y += half_size * 2.0
+	var hit: VoxelHit = _cast_bounds(cell, flat, transformed_origin, transformed_ray, max_distance)
+	if hit == null:
+		return null
+	var outer: VoxelHit = _cast_bounds(cell, bounds, origin, ray, max_distance)
+	if outer == null:
+		return null
+	var entry: float = maxf(hit.distance, outer.distance)
+	var point: Vector3 = origin + ray * entry
+	var projected: Vector3 = point
+	projected.y -= VoxelWorldData.slope_elevation(cell, block, point)
+	if not flat.grow(0.000001).has_point(projected) or not bounds.grow(0.000001).has_point(point):
+		return null
+	return VoxelHit.new(cell, hit.normal if hit.distance >= outer.distance else outer.normal, entry, point)
 
 
 static func _cast_bounds(

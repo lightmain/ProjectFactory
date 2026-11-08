@@ -214,6 +214,10 @@ func _handle_build_input(event: InputEvent) -> void:
 		block_selected.emit(VoxelWorldData.Block.CHEST)
 	elif event.is_action_pressed("select_structure"):
 		block_selected.emit(VoxelWorldData.Block.STRUCTURE)
+	elif event.is_action_pressed("select_belt_up"):
+		block_selected.emit(VoxelWorldData.Block.BELT_UP)
+	elif event.is_action_pressed("select_belt_down"):
+		block_selected.emit(VoxelWorldData.Block.BELT_DOWN)
 	elif event.is_action_pressed("rotate_build") and not event.is_echo():
 		build_rotation_requested.emit()
 	elif event.is_action_pressed("lock_belt_path") and not event.is_echo():

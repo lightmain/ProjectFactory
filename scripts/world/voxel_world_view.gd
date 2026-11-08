@@ -136,6 +136,8 @@ func _rebuild_chunk(chunk: Vector3i) -> void:
 func _face_covered(cell: Vector3i, normal: Vector3i, bounds: AABB) -> bool:
 	var neighbor_cell: Vector3i = cell + normal
 	var neighbor: int = _world.get_block(neighbor_cell)
+	if VoxelWorldData.is_slope(_world.get_block(cell)) or VoxelWorldData.is_slope(neighbor):
+		return false
 	if neighbor == VoxelWorldData.Block.AIR:
 		return false
 	var other: AABB = VoxelWorldData.block_bounds(neighbor_cell, neighbor)
@@ -155,6 +157,8 @@ func _face_covered(cell: Vector3i, normal: Vector3i, bounds: AABB) -> bool:
 static func _add_face(
 	surface: SurfaceTool, cell: Vector3i, normal: Vector3i, block: int, bounds: AABB
 ) -> void:
+	if VoxelWorldData.is_slope(block):
+		bounds = VoxelWorldData.block_bounds(cell, VoxelWorldData.Block.BELT)
 	var u: Vector3 = Vector3(normal).cross(Vector3.UP)
 	var v: Vector3 = Vector3.UP
 	if normal.y != 0:
@@ -167,17 +171,25 @@ static func _add_face(
 		center - u - v, center + u - v,
 		center + u + v, center - u + v,
 	]
+	var face_normal: Vector3 = Vector3(normal)
+	if VoxelWorldData.is_slope(block):
+		for index: int in range(corners.size()):
+			corners[index].y += VoxelWorldData.slope_elevation(cell, block, corners[index])
+		if normal.y != 0:
+			face_normal = (Vector3.UP - Vector3(VoxelWorldData.slope_direction(block)) * VoxelWorldData.slope_rise(block)).normalized() * normal.y
 	var color: Color = _face_color(block, normal)
 	# A small deterministic variation makes individual voxels readable.
 	var variation: float = 0.94 + float(posmod(cell.x * 31 + cell.y * 17 + cell.z * 13, 11)) * 0.01
 	color = Color(color.r * variation, color.g * variation, color.b * variation)
 	for index: int in [0, 1, 2, 0, 2, 3]:
-		surface.set_normal(Vector3(normal))
+		surface.set_normal(face_normal)
 		surface.set_color(color)
 		surface.add_vertex(corners[index])
 
 
 static func _face_color(block: int, normal: Vector3i) -> Color:
+	if VoxelWorldData.is_slope(block):
+		return Color("#444444") if normal.y > 0 else Color("#969696")
 	match block:
 		VoxelWorldData.Block.GRASS:
 			return Color("#65965a") if normal.y > 0 else Color("#80634a")

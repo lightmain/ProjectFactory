@@ -2,7 +2,7 @@ class_name SessionSnapshot
 extends RefCounted
 ## Fully validated, independent rules. No live nodes are touched during decoding.
 
-const FORMAT_VERSION: int = 2
+const FORMAT_VERSION: int = 3
 const GENERATOR_VERSION: int = 1
 
 var world: VoxelWorldData = VoxelWorldData.new()
@@ -55,13 +55,13 @@ static func decode(state: Dictionary) -> SessionSnapshot:
 		if not state.get("structures") is Array:
 			return null
 		structures = state["structures"]
-	if version == 1:
+	if version < 3:
 		# Version one had neither this block type nor instance metadata.
-		if not structures.is_empty():
+		if version == 1 and not structures.is_empty():
 			return null
 		for records: PackedByteArray in chunks.values():
 			for offset: int in range(2, records.size(), 3):
-				if records[offset] > VoxelWorldData.Block.CHEST:
+				if records[offset] > (VoxelWorldData.Block.CHEST if version == 1 else VoxelWorldData.Block.STRUCTURE):
 					return null
 	if not result.world.restore_chunks(flat, chunks, structures):
 		return null
@@ -75,10 +75,13 @@ static func decode(state: Dictionary) -> SessionSnapshot:
 		not SnapshotValues.vector(player.get("velocity"), 1000.0)
 		or not SnapshotValues.vector(player.get("spawn"), 10000.0)
 		or not SnapshotValues.vector(player.get("rotation"), 100000.0)
-		or not SnapshotValues.integer(player.get("tool"), 1, 8 if version >= 2 else 7)
+		or not SnapshotValues.integer(player.get("tool"), 1, 13 if version >= 3 else (8 if version >= 2 else 7))
 		or player.get("tool") == VoxelWorldData.Block.BEDROCK
 		or not SnapshotValues.integer(player.get("build_rotation"), 0, 3)
 	):
+		return null
+	var tool: int = player["tool"]
+	if tool > 8 and tool not in [VoxelWorldData.Block.BELT_UP, VoxelWorldData.Block.BELT_DOWN]:
 		return null
 	result.position = player["position"]
 	result.velocity = player["velocity"]
@@ -86,6 +89,6 @@ static func decode(state: Dictionary) -> SessionSnapshot:
 	result.view_rotation = player["rotation"]
 	if absf(result.view_rotation.x) > 1.5 or result.view_rotation.z != 0.0:
 		return null
-	result.selected_block = player["tool"]
+	result.selected_block = tool
 	result.build_rotation = player["build_rotation"]
 	return result

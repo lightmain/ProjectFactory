@@ -31,7 +31,8 @@ func _ready() -> void:
 
 func show_cells(
 	cells: Array[Vector3i], directions: Array[Vector3i], block: int,
-	world: VoxelWorldData, invalid: bool, locked_points: Array[Vector3i] = []
+	world: VoxelWorldData, invalid: bool, locked_points: Array[Vector3i] = [],
+	cell_blocks: Array[int] = []
 ) -> void:
 	_structure_preview = false
 	_body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_HASH
@@ -40,19 +41,21 @@ func show_cells(
 	var arrow_transforms: Array[Transform3D] = []
 	for index: int in range(cells.size()):
 		var cell: Vector3i = cells[index]
+		var cell_block: int = cell_blocks[index] if index < cell_blocks.size() else block
 		var existing: int = world.get_block(cell)
-		if block == VoxelWorldData.Block.BELT and existing in [
+		if cell_block == VoxelWorldData.Block.BELT and existing in [
 			VoxelWorldData.Block.MINER, VoxelWorldData.Block.CHEST,
 		]:
 			continue
-		var bounds: AABB = VoxelWorldData.block_bounds(cell, block)
+		var bounds: AABB = VoxelWorldData.block_bounds(cell, cell_block)
+		if VoxelWorldData.is_slope(cell_block):
+			bounds = VoxelWorldData.block_bounds(cell, VoxelWorldData.Block.BELT)
+			bounds.position.y += VoxelWorldData.CELL_SIZE * 0.5
 		# Slight expansion avoids coplanar flicker on existing endpoint belts.
 		var expansion: Vector3 = Vector3.ONE * 0.004 if existing != VoxelWorldData.Block.AIR else Vector3.ZERO
-		body_transforms.append(Transform3D(
-			Basis.IDENTITY.scaled(bounds.size + expansion), bounds.get_center()
-		))
+		body_transforms.append(cell_body_transform(cell, cell_block, expansion))
 		var direction: Vector3i = directions[index]
-		var facing: Basis = Basis(Vector3.UP, atan2(-float(direction.x), -float(direction.z)))
+		var facing: Basis = LogisticsView.arrow_facing(direction, cell_block)
 		arrow_transforms.append(Transform3D(
 			facing, bounds.get_center() + Vector3.UP * (bounds.size.y * 0.5 + 0.006)
 		))
@@ -61,6 +64,18 @@ func show_cells(
 	show_lock_points(locked_points)
 	set_invalid(invalid)
 	visible = not body_transforms.is_empty()
+
+
+static func cell_body_transform(cell: Vector3i, block: int, expansion: Vector3 = Vector3.ZERO) -> Transform3D:
+	var bounds: AABB = VoxelWorldData.block_bounds(cell, block)
+	var shape: Basis = Basis.IDENTITY
+	if VoxelWorldData.is_slope(block):
+		var gradient: Vector3 = Vector3(VoxelWorldData.slope_direction(block)) * VoxelWorldData.slope_rise(block)
+		shape.x.y = gradient.x
+		shape.z.y = gradient.z
+		bounds = VoxelWorldData.block_bounds(cell, VoxelWorldData.Block.BELT)
+		bounds.position.y += VoxelWorldData.CELL_SIZE * 0.5
+	return Transform3D(shape * Basis.from_scale(bounds.size + expansion), bounds.get_center())
 
 
 func show_lock_points(cells: Array[Vector3i]) -> void:

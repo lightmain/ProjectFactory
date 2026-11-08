@@ -9,6 +9,7 @@ var _slot_blocks: Array[int] = [
 	VoxelWorldData.Block.GRASS, VoxelWorldData.Block.DIRT, VoxelWorldData.Block.STONE,
 	VoxelWorldData.Block.MINER, VoxelWorldData.Block.BELT, VoxelWorldData.Block.CHEST,
 	VoxelWorldData.Block.STRUCTURE,
+	VoxelWorldData.Block.BELT_UP, VoxelWorldData.Block.BELT_DOWN,
 ]
 var _build_hint: Label
 var _active_style: StyleBoxFlat
@@ -33,7 +34,7 @@ func _ready() -> void:
 	_hint.offset_left = 28
 	_hint.offset_top = -64
 	_hint.offset_bottom = -20
-	_hint.text = "WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nI  Inventory    ESC  Pause    1 - 7  Build tool    R  Rotate"
+	_hint.text = "WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nI  Inventory    ESC  Pause    1 - 9  Build tool    R  Rotate"
 	_notice = _label(Vector2.ZERO, 19, Color("#ffaaa3"))
 	_notice.add_theme_font_override("font", localized_font)
 	_notice.name = "BuildNotice"
@@ -47,15 +48,15 @@ func _ready() -> void:
 	var hotbar: HBoxContainer = HBoxContainer.new()
 	hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hotbar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	hotbar.position = Vector2(-423, -120)
+	hotbar.position = Vector2(-527, -120)
 	hotbar.add_theme_constant_override("separation", 8)
 	add_child(hotbar)
 	_active_style = _slot_style(Color("#263939"), Color("#b5ddb1"), 2)
 	_idle_style = _slot_style(Color("#1a242b"), Color("#435056"), 1)
-	for text: String in ["1  GRASS", "2  DIRT", "3  STONE", "4  MINER", "5  BELT", "6  CHEST", "7  3×3×3"]:
+	for text: String in ["1  GRASS", "2  DIRT", "3  STONE", "4  MINER", "5  BELT", "6  CHEST", "7  3×3×3", "8  UP 45°", "9  DOWN 45°"]:
 		var slot: Label = Label.new()
 		slot.text = text
-		slot.custom_minimum_size = Vector2(114, 48)
+		slot.custom_minimum_size = Vector2(110, 48)
 		slot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		slot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		slot.add_theme_font_size_override("font_size", 14)
@@ -79,7 +80,8 @@ func show_build_notice(message: String) -> void:
 func update_status(
 	block: int, hit: VoxelHit, world: VoxelWorldData, captured: bool,
 	logistics: LogisticsData = null, direction: Vector3i = Vector3i.ZERO,
-	belt_active: bool = false, locked_count: int = 0, free_view: bool = false
+	belt_active: bool = false, locked_count: int = 0, free_view: bool = false,
+	north_south_first: bool = true
 ) -> void:
 	if _free_view != free_view:
 		_free_view = free_view
@@ -87,8 +89,10 @@ func update_status(
 	_hint.text = (
 		"WASD  Camera    WHEEL  Zoom    Hold MMB  Orbit center\nTAB  First person    LMB / RMB  Build    I  Inventory    ESC  Pause    R  Rotate"
 		if free_view else
-		"WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nTAB  Free camera    I  Inventory    ESC  Pause    1 - 7  Build tool    R  Rotate"
+		"WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nTAB  Free camera    I  Inventory    ESC  Pause    1 - 9  Build tool    R  Rotate"
 	)
+	if belt_active:
+		_hint.text = _hint.text.replace("R  Rotate", "R  Route order")
 	if hit == null:
 		_target.text = "Point at a block within 40 m" if free_view else "Aim at a block within 5 m"
 	else:
@@ -106,11 +110,15 @@ func update_status(
 		_build_hint.text = "OUTPUT → %s    /    R Rotate    /    Belt: 2 ore/s" % facing
 	if block == VoxelWorldData.Block.BELT:
 		_build_hint.text = (
-			"右键完成  /  C 锁定此前路径  /  左键取消  /  已锁定 %d 格" % locked_count
-			if belt_active else "右键选起点，再右键选终点  /  自动绕障  /  R 转向"
+			"右键完成  /  C 锁定此前路径  /  左键取消  /  已锁定 %d 格  /  %s  /  R 切换" % [
+				locked_count, "先南北后东西" if north_south_first else "先东西后南北",
+			]
+			if belt_active else "右键选起点，再右键选终点  /  直角贴地路线  /  R 转向"
 		)
 	if block == VoxelWorldData.Block.STRUCTURE:
 		_build_hint.text = "3×3×3  /  R Rotate  /  RMB Place  /  LMB Break whole"
+	if VoxelWorldData.is_slope(block):
+		_build_hint.text = "45° 直行斜坡  /  R 转向  /  右键放置一段  /  不接受侧入"
 	if not captured:
 		_target.text = "CURSOR RELEASED  /  Click to resume"
 	for index: int in range(_slots.size()):
