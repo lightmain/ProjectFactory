@@ -1,6 +1,7 @@
 # ProjectFactory
 
-当前开发阶段：**prealpha-1**。`prealpha-2` 目前仅为预先创建的空文件夹，尚未开始该阶段。
+当前开发阶段：**prealpha-2 开发中**。**prealpha-1 功能范围已封版**；
+prealpha-2 首项物流性能优化的规格与开发计划已确认，开始基准采集。
 
 基于 Godot 的三维体素工厂游戏基础框架，参考本地 `godot-template` 的 AI 脚手架搭建。
 当前提供有限平地、第一人称移动与跳跃、自由建造视角、方块编辑、空玩家物品栏，
@@ -90,6 +91,15 @@ addons/                原样复用的 Godot AI 与 GdUnit4
 
 ### prealpha-1
 
+2026-11-08 冻结功能范围：此前全部功能归入下列 001～011 规格，
+包括大世界存档、内容物编辑与压力测试工具。既有条款的继承／替代关系保持有效；
+旧 HTML 草案按 007 的标识保留为历史材料。后续新增或变化的功能进入 prealpha-2。
+本次完成范围封版；封版不表示已消除全部已知问题，
+Git 与发布状态按开发说明查询。
+百万带手工运行中的数组越界尚未修复，排查纳入
+[prealpha-2 首项计划](docs/features/prealpha-2/001-logistics-performance.md#数组越界排查)；
+当前性能限制与当次验证范围见 [压力存档审查](docs/reviews/011-pressure-save.md)。
+
 - [体素规格](docs/features/prealpha-1/001-voxel-foundation.md)：世界尺度、边界、编辑和重生验收。
 - [玩家与物品栏规格](docs/features/prealpha-1/002-player-and-inventory.md)：碰撞、运动、库存和输入验收。
 - [基础物流规格](docs/features/prealpha-1/003-basic-logistics.md)：生产、运输、端口、方向和渲染解耦。
@@ -107,5 +117,11 @@ addons/                原样复用的 Godot AI 与 GdUnit4
   固定直角投影、R 切换轴顺序与贪心坡道规划。
 - [大世界存档与压力测试](docs/features/prealpha-1/011-pressure-save.md)：
   可变边界、紧凑存档、内容物编辑与压力档生成／测量工具。
+
+### prealpha-2
+
+- [首项更新：物流性能优化与开发计划](docs/features/prealpha-2/001-logistics-performance.md)：
+  数组越界排查、回归基线、接口解耦、连续运输线路、可见范围采样、
+  装饰批量绘制和读档去重；实施进展及待实施范围见规格。
 
 历史审查与验证证据保存在 `docs/reviews/`，其中结果仅对应各次记录的验证范围。
