@@ -10,10 +10,42 @@ const FACE_NORMALS: Array[Vector3i] = [
 const GRID_SHADER: Shader = preload("res://scripts/world/voxel_grid.gdshader")
 
 var _world: VoxelWorldData
+var _logistics: LogisticsData
 var _chunks: Dictionary[Vector3i, StaticBody3D] = {}
 var _pending: Dictionary[Vector3i, bool] = {}
 var _material: ShaderMaterial
 var _structure_arrows: MultiMeshInstance3D
+
+
+func bind_logistics(logistics: LogisticsData) -> void:
+	if _logistics != null:
+		_logistics.machine_changed.disconnect(_on_cell_changed)
+		_logistics.reset.disconnect(_on_logistics_reset)
+	_logistics = logistics
+	_logistics.machine_changed.connect(_on_cell_changed)
+	_logistics.reset.connect(_on_logistics_reset)
+	_on_logistics_reset()
+
+
+func _on_logistics_reset() -> void:
+	# Restoring directions invalidates the existing surfaces, not world geometry.
+	# Defer rebuilding so a following bind_world does not build the old world twice.
+	for chunk: Vector3i in _chunks:
+		_pending[chunk] = true
+
+
+func set_decoration_camera(camera: Camera3D, distance: float, enabled: bool) -> void:
+	if _material == null:
+		return
+	var valid: bool = (
+		enabled and is_instance_valid(camera) and is_finite(distance) and distance > 0.0
+	)
+	if valid:
+		valid = camera.global_position.is_finite()
+	_material.set_shader_parameter("decorations_enabled", valid)
+	_material.set_shader_parameter("decoration_distance", distance if valid else 0.0)
+	if valid:
+		_material.set_shader_parameter("decoration_camera", camera.global_position)
 
 
 func bind_world(world: VoxelWorldData) -> void:
@@ -23,6 +55,8 @@ func bind_world(world: VoxelWorldData) -> void:
 	_world = world
 	_material = ShaderMaterial.new()
 	_material.shader = GRID_SHADER
+	_material.set_shader_parameter("output_color", Color("#c9f0a1"))
+	_material.set_shader_parameter("input_color", Color("#81cbdc"))
 	_world.cell_changed.connect(_on_cell_changed)
 	_world.world_reset.connect(_on_world_reset)
 	_on_world_reset()
@@ -99,6 +133,7 @@ func _rebuild_chunk(chunk: Vector3i) -> void:
 		_chunks.erase(chunk)
 	var surface: SurfaceTool = SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	surface.set_custom_format(0, SurfaceTool.CUSTOM_RGBA_FLOAT)
 	var face_count: int = 0
 	var start: Vector3i = chunk * CHUNK_SIZE
 	for x: int in range(start.x, start.x + CHUNK_SIZE):
@@ -109,9 +144,12 @@ func _rebuild_chunk(chunk: Vector3i) -> void:
 				if block == VoxelWorldData.Block.AIR:
 					continue
 				var bounds: AABB = VoxelWorldData.block_bounds(cell, block)
+				var direction: Vector3i = Vector3i.ZERO
+				if _logistics != null and LogisticsData.is_machine(block):
+					direction = _logistics.direction_at(cell)
 				for normal: Vector3i in FACE_NORMALS:
 					if not _face_covered(cell, normal, bounds):
-						_add_face(surface, cell, normal, block, bounds)
+						_add_face(surface, cell, normal, block, bounds, direction)
 						face_count += 1
 	if face_count == 0:
 		return
@@ -155,7 +193,8 @@ func _face_covered(cell: Vector3i, normal: Vector3i, bounds: AABB) -> bool:
 
 
 static func _add_face(
-	surface: SurfaceTool, cell: Vector3i, normal: Vector3i, block: int, bounds: AABB
+	surface: SurfaceTool, cell: Vector3i, normal: Vector3i, block: int, bounds: AABB,
+	direction: Vector3i = Vector3i.ZERO
 ) -> void:
 	if VoxelWorldData.is_slope(block):
 		bounds = VoxelWorldData.block_bounds(cell, VoxelWorldData.Block.BELT)
@@ -178,12 +217,39 @@ static func _add_face(
 		if normal.y != 0:
 			face_normal = (Vector3.UP - Vector3(VoxelWorldData.slope_direction(block)) * VoxelWorldData.slope_rise(block)).normalized() * normal.y
 	var color: Color = _face_color(block, normal)
+	var mark: int = 0
+	if direction != Vector3i.ZERO:
+		if normal == Vector3i.UP:
+			mark = 1
+		elif normal == direction:
+			mark = 2
+		elif normal.y == 0 and (
+			block == VoxelWorldData.Block.BELT
+			or (block != VoxelWorldData.Block.MINER and normal == -direction)
+		):
+			mark = 3
+	var cell_center: Vector3 = VoxelWorldData.cell_center(cell)
+	var forward: Vector3 = Vector3(direction)
+	var left: Vector3 = Vector3.UP.cross(forward)
+	var port_width_axis: Vector3 = Vector3(normal).cross(Vector3.UP)
+	var port_height: float = minf(0.12, bounds.size.y * 0.6)
 	# A small deterministic variation makes individual voxels readable.
 	var variation: float = 0.94 + float(posmod(cell.x * 31 + cell.y * 17 + cell.z * 13, 11)) * 0.01
 	color = Color(color.r * variation, color.g * variation, color.b * variation)
 	for index: int in [0, 1, 2, 0, 2, 3]:
 		surface.set_normal(face_normal)
 		surface.set_color(color)
+		var offset: Vector3 = corners[index] - bounds.get_center()
+		var uv: Vector2 = Vector2.ZERO
+		if mark == 1:
+			uv = Vector2(offset.dot(left), -offset.dot(forward))
+		elif mark > 1:
+			# Remove the slope elevation so the end ports remain vertical rectangles.
+			if VoxelWorldData.is_slope(block):
+				offset.y -= VoxelWorldData.slope_elevation(cell, block, corners[index])
+			uv = Vector2(offset.dot(port_width_axis) / 0.16, offset.y / port_height)
+		surface.set_uv(uv)
+		surface.set_custom(0, Color(cell_center.x, cell_center.y, cell_center.z, float(mark)))
 		surface.add_vertex(corners[index])
 
 

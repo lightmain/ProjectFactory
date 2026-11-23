@@ -1,7 +1,7 @@
 # ProjectFactory
 
 当前开发阶段：**prealpha-2 开发中**。**prealpha-1 功能范围已封版**；
-prealpha-2 首项物流性能优化的规格与开发计划已确认，开始基准采集。
+纯传送带段合并、编辑重复转换优化及三尺度压力验证已完成；其他优化暂缓。
 
 基于 Godot 的三维体素工厂游戏基础框架，参考本地 `godot-template` 的 AI 脚手架搭建。
 当前提供有限平地、第一人称移动与跳跃、自由建造视角、方块编辑、空玩家物品栏，
@@ -96,7 +96,7 @@ addons/                原样复用的 Godot AI 与 GdUnit4
 旧 HTML 草案按 007 的标识保留为历史材料。后续新增或变化的功能进入 prealpha-2。
 本次完成范围封版；封版不表示已消除全部已知问题，
 Git 与发布状态按开发说明查询。
-百万带手工运行中的数组越界尚未修复，排查纳入
+百万带手工运行中的数组越界未复现，按用户决定跳过本次排查并继续开发，记录见
 [prealpha-2 首项计划](docs/features/prealpha-2/001-logistics-performance.md#数组越界排查)；
 当前性能限制与当次验证范围见 [压力存档审查](docs/reviews/011-pressure-save.md)。
 
@@ -123,5 +123,9 @@ Git 与发布状态按开发说明查询。
 - [首项更新：物流性能优化与开发计划](docs/features/prealpha-2/001-logistics-performance.md)：
   数组越界排查、回归基线、接口解耦、连续运输线路、可见范围采样、
   装饰批量绘制和读档去重；实施进展及待实施范围见规格。
+- [RustConveyor 接入与百万传送带验证](docs/features/prealpha-2/002-rust-conveyor-integration.md)：
+  首版独立运输包接入、真实坡道长度、Godot 批量接口、设施表面标记和百万压力测量；
+  当前规则与后续边界见规格，实测证据见
+  [接入验收](docs/reviews/2026-11-23-rust-conveyor-host.md)。
 
 历史审查与验证证据保存在 `docs/reviews/`，其中结果仅对应各次记录的验证范围。

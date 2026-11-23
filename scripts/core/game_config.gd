@@ -2,6 +2,8 @@ class_name GameConfig
 extends Resource
 ## Shared tuning parameters; mutable factory state belongs to LogisticsData.
 
+const DEFAULT_ORE_RENDER_MAX_HEIGHT_ABOVE_CAMERA: float = 2.0
+
 @export_group("Rendering")
 ## Distance from the active camera to the machine cell centre, in metres.
 @export_range(0.0, 200.0, 0.5, "or_greater", "suffix:m")
@@ -10,7 +12,17 @@ var ore_render_distance: float = 12.0:
 		ore_render_distance = value
 		emit_changed()
 
+## Only belt ore centres higher than this distance above the active camera are hidden.
+@export_range(0.0, 200.0, 0.5, "or_greater", "suffix:m")
+var ore_render_max_height_above_camera: float = DEFAULT_ORE_RENDER_MAX_HEIGHT_ABOVE_CAMERA:
+	set(value):
+		ore_render_max_height_above_camera = value
+		emit_changed()
+
 @export_group("Mining")
+## Used by new sessions. Loaded saves retain their recorded backend.
+@export_enum("gdscript", "rust") var transport_backend: String = "gdscript"
+
 ## Seconds per cycle; invalid values disable newly placed miners.
 @export var mining_interval: float = 1.0:
 	set(value):
@@ -26,3 +38,7 @@ var ore_render_distance: float = 12.0:
 var autosave_interval_minutes: float = 5.0
 @export_range(1, 100, 1, "or_greater")
 var autosave_retention: int = 3
+
+
+static func validated_ore_render_height(value: float) -> float:
+	return value if is_finite(value) and value >= 0.0 else DEFAULT_ORE_RENDER_MAX_HEIGHT_ABOVE_CAMERA

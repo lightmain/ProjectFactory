@@ -21,7 +21,7 @@ fi
 for plugin in godot_ai gdUnit4; do
   test -f "$PROJECT_ROOT/addons/$plugin/plugin.cfg"
 done
-grep -q 'version="4.2.3"' "$PROJECT_ROOT/addons/godot_ai/plugin.cfg"
+grep -q 'version="4.4.2"' "$PROJECT_ROOT/addons/godot_ai/plugin.cfg"
 grep -q 'version="6.2.1"' "$PROJECT_ROOT/addons/gdUnit4/plugin.cfg"
 
 CHECK_LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/project-factory-check.XXXXXX")"
@@ -54,6 +54,16 @@ echo "正在执行：type_safety"
 python3 -B "$CHECK_PROJECT_ROOT/scripts/check_types.py" "$GODOT_BIN" 2>&1 | tee "$CHECK_LOG_DIR/type_safety.log"
 run_checked tests -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd \
   --ignoreHeadlessMode -a res://tests -rd ../reports
+if [[ -f "$CHECK_PROJECT_ROOT/addons/rust_conveyor/rust_conveyor.gdextension" ]]; then
+  run_checked rust_contract -s res://scripts/check_rust_conveyor.gd --quit-after 10
+  grep -qx 'PROJECT_FACTORY_RUST_CONVEYOR_PASS' "$CHECK_LOG_DIR/rust_contract.log"
+  run_checked rust_regressions -s res://scripts/check_rust_regressions.gd --quit-after 10
+  for regression in reconnect direct failure binding merge rogue ring ring_sparse ring_input rejected_import dense_edit identity; do
+    grep -qx "RUST_HOST_REGRESSION_PASS $regression" "$CHECK_LOG_DIR/rust_regressions.log"
+  done
+  run_checked rust_display -s res://scripts/check_rust_display.gd --quit-after 10
+  grep -qx 'PROJECT_FACTORY_RUST_DISPLAY_PASS' "$CHECK_LOG_DIR/rust_display.log"
+fi
 echo "正在执行：startup_after"
 python3 -B "$PROJECT_ROOT/scripts/check_startup.py" after "$GODOT_BIN" \
   "$CHECK_PROJECT_ROOT" "$PROJECT_ROOT" "$CHECK_LOG_DIR"

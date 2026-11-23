@@ -8,7 +8,7 @@ var _path: Array[Vector3i] = []
 var _world: VoxelWorldData
 
 
-func build(size: int = 128, height: int = 64) -> SessionSnapshot:
+func build(size: int = 128, height: int = 64, backend: String = "gdscript") -> SessionSnapshot:
 	last_error = ""
 	if size < 8 or size > 128 or size % 2 != 0 or height < 6 or height > 128:
 		last_error = "尺寸须为 8～128 的偶数，高度须为 6～128。"
@@ -51,6 +51,9 @@ func build(size: int = 128, height: int = 64) -> SessionSnapshot:
 			return null
 	var snapshot: SessionSnapshot = SessionSnapshot.new()
 	snapshot.world = _world
+	if backend == "rust" and not snapshot.logistics.enable_rust_transport():
+		last_error = snapshot.logistics.transport_error()
+		return null
 	snapshot.logistics.bind_world(_world)
 	for index: int in range(_path.size()):
 		var direction: Vector3i = Vector3i.LEFT if index == _path.size() - 1 else _path[index + 1] - _path[index]
@@ -91,7 +94,7 @@ static func state_for(snapshot: SessionSnapshot) -> Dictionary:
 static func route_certificate(snapshot: SessionSnapshot) -> Dictionary:
 	## Linear audit of the settled graph, including the file restored at full size.
 	var state: Dictionary = snapshot.logistics.save_packed_state()
-	if state["dirty"]:
+	if state.is_empty() or state["dirty"]:
 		return {}
 	var bytes: PackedByteArray = state["machines"]
 	var outgoing: PackedInt32Array = state["outgoing"]
@@ -100,6 +103,7 @@ static func route_certificate(snapshot: SessionSnapshot) -> Dictionary:
 	predecessors.resize(cells.size())
 	predecessors.fill(0)
 	var miners: int = 0
+	var producer_cells: Array[Vector3i] = []
 	var belts: int = 0
 	var slopes: int = 0
 	var sink: int = -1
@@ -121,6 +125,7 @@ static func route_certificate(snapshot: SessionSnapshot) -> Dictionary:
 			return {}
 		if block == VoxelWorldData.Block.MINER:
 			miners += 1
+			producer_cells.append(cells[index])
 			if not VoxelWorldData.is_belt(target_block):
 				return {}
 		elif VoxelWorldData.is_belt(block):
@@ -152,4 +157,5 @@ static func route_certificate(snapshot: SessionSnapshot) -> Dictionary:
 	if cursor != sink or visited != belts:
 		return {}
 	return {"belts": belts, "visited_belts": visited, "miners": miners, "chests": 1,
+		"producer_cells": producer_cells,
 		"slopes": slopes, "head": cells[head], "sink": cells[sink]}

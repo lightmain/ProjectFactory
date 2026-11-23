@@ -5,7 +5,7 @@
 ## 环境要求
 
 - Godot **4.7.2**、Forward Plus、Jolt Physics，业务脚本使用 typed GDScript。
-- Godot AI **4.2.3** 与 GdUnit4 **6.2.1** 已 vendored；启用状态见 `project.godot`。
+- Godot AI **4.4.2** 与 GdUnit4 **6.2.1** 已 vendored；启用状态见 `project.godot`。
 - 验证需要 Bash、Python 3 和 Git；插件连接步骤见 [AI 配置](setup/godot_ai.md)。
 
 升级时同步版本要求、`scripts/verify.sh` 的检查和 CI 配置，并完整回归。
@@ -51,6 +51,53 @@ Git、本机配置及生成输出，避免与已打开的编辑器共用缓存�
 GdUnit4 的无头模式不能保证引擎真实派发键鼠事件，集成测试通过玩家公开的
 `handle_input(event)` 边界传入真实 InputEvent，验证输入→信号→规则→碰撞链路；
 真实窗口输入与视觉必须另做编辑器验证。
+
+## 可选 Rust 运输后端
+
+本仓库不携带原生二进制；RustConveyor 的安装脚本同时生成扩展描述和共享库，
+安装目录由 Git 忽略。未安装时默认 GDScript 后端可运行，
+显式请求 Rust 会返回错误并停止该物流后端。行为及验收见
+[002 接入规格](features/prealpha-2/002-rust-conveyor-integration.md)。
+在 RustConveyor 源码根目录执行，使用所选 Godot 项目的实际路径：
+
+```bash
+bash godot/install.sh /path/to/project-factory release
+```
+
+然后重新启动 Godot 编辑器；原生库不可热重载。
+安装后的 `verify.sh` 除原检查外还执行原生运输契约和宿主回归脚本。
+未安装扩展的 CI 只验证默认后端；目前没有发布到注册表的原生包或自动下载步骤。
+压力测量使用真实磁盘存档并挂载完整主场景：
+
+```bash
+godot --headless --path . -s res://scripts/pressure_native_benchmark.gd \
+  -- 128 64 /tmp/new-million-pressure-report 300 120 rust
+```
+
+输出目录必须尚不存在；保留原始样本、bank 存档和阶段报告。
+去掉 `--headless` 可同时生成运行截图。用 `/usr/bin/time -l` 包裹命令测量进程 RSS；
+核心、绑定、模拟和整场景提交分别计量，绑定耗时包含核心耗时。
+
+顺序运行完整四尺度矩阵或仅百万窗口：
+
+```bash
+RUST_CONVEYOR_SOURCE=/path/to/RustConveyor \
+  bash scripts/run_native_pressure.sh /tmp/new-native-matrix rust headless
+RUST_CONVEYOR_SOURCE=/path/to/RustConveyor \
+  bash scripts/run_native_pressure.sh /tmp/new-native-window rust window million
+```
+
+每例预热 120 tick、测量 300 tick；目录必须尚不存在。
+`provenance.json` 记录实际命令、两仓库源码输入指纹及安装库的构建信息和哈希，
+`work_samples.json` 将每 tick 的工作量与时间样本对应。
+没有 Rust 源码路径或安装库构建清单时明确标为未知来源，不从当前源码推定旧库来源。
+`process_interval` 从每个已测 tick 起点量至下一帧起点，包含最后 tick 之后的引擎工作；
+人口审计和报告写入在墙钟测量窗口外，分别计量。
+
+编辑器全局目录受限时，可在工作区内使用独立 Godot 可执行文件和 `_sc_`
+标记隔离编辑器数据；macOS 游戏用户目录还需为 Godot 子进程单独设置 HOME。
+验证编排器与 Git 保持原 HOME。实际验证过的隔离步骤和限制见
+[2026-11-23 环境记录](reviews/2026-11-23-verification-environment.md)。
 
 ## 当前状态与文档检查
 

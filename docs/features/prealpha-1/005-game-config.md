@@ -10,6 +10,8 @@
   `scripts/core/game_config.gd` 定义的 `GameConfig` Resource；
   主场景 `FactoryGame.game_config` 引用该资源，在 Inspector 编辑并保存资源即可持久化。
   默认矿石表现距离为 12 米，矿机周期为 1 秒，每周期产量为 1。
+  **prealpha-2 增加仅针对传送带矿石的高度参数，已实现；
+  参数与当前显示规则见 [T07 高度裁剪](../prealpha-2/001-logistics-performance.md#可见范围采样与高度裁剪)。**
 - `FactoryGame` 显式将距离传给 `LogisticsView`，将周期和产量传给 `LogisticsData`。
   运行中修改所引用资源的字段会通过 `Resource.changed` 更新这些模块；
   距离在下一次表现刷新生效，矿机参数只影响后续放置，已有矿机保留放置时的快照。

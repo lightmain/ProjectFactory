@@ -69,7 +69,7 @@ class VerifyRegressionTests(unittest.TestCase):
         self.root.mkdir()
         for name in ("scripts", "scenes", "assets", "config", "tests", ".godot"):
             (self.root / name).mkdir()
-        for plugin, version in (("godot_ai", "4.2.3"), ("gdUnit4", "6.2.1")):
+        for plugin, version in (("godot_ai", "4.4.2"), ("gdUnit4", "6.2.1")):
             directory = self.root / "addons" / plugin
             directory.mkdir(parents=True)
             (directory / "plugin.cfg").write_text(f'version="{version}"\n')

@@ -30,7 +30,7 @@ func test_belt_items_are_batched_without_per_item_nodes() -> void:
 	assert_int(_game.logistics_view.find_children(
 		"BeltOre*", "MeshInstance3D", true, false
 	).size()).is_equal(0)
-	var batches: Array[Node] = _game.logistics_view.find_children(
+	var batches: Array[Node] = _game.logistics_view.item_render_pool.find_children(
 		"ItemBatch*", "MultiMeshInstance3D", true, false
 	)
 	assert_int(batches.size()).is_equal(1)

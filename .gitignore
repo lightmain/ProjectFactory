@@ -28,3 +28,7 @@ export_credentials.cfg
 *.tmp
 *.bak
 *~
+
+# Native transport binaries are installed from RustConveyor source.
+addons/rust_conveyor/
+.local-tools/

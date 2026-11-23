@@ -4,3 +4,4 @@
 
 [resource]
 script = ExtResource("1_config")
+ore_render_max_height_above_camera = 2.0

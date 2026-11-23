@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://ueqq1f8ow2gr"]
 
 [ext_resource type="Script" uid="uid://3tyjg2p2d2ii" path="res://scripts/factory_game.gd" id="1_game"]
-[ext_resource type="Resource" path="res://config/game_config.tres" id="2_tefeu"]
+[ext_resource type="Resource" uid="uid://bx0tq0wrcgkwv" path="res://config/game_config.tres" id="2_tefeu"]
 [ext_resource type="Script" uid="uid://cr1pamn5uhtgt" path="res://scripts/world/voxel_world_view.gd" id="2_world"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="3_player"]
 [ext_resource type="Script" uid="uid://b43ojnd6ogjca" path="res://scripts/ui/factory_hud.gd" id="4_hud"]

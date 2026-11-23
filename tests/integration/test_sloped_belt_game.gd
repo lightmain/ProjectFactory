@@ -114,9 +114,9 @@ func test_preview_geometry_arrow_and_ports_match_all_eight_physical_slopes() -> 
 		var root: Node3D = _game.logistics_view.get_node("Machine_%d_0_0" % ((block - 9) * 2)) as Node3D
 		assert_bool(root.has_node("InputLeft")).is_false()
 		assert_bool(root.has_node("InputRight")).is_false()
-		var output: Node3D = root.get_node("Output") as Node3D
-		var input: Node3D = root.get_node("Input") as Node3D
-		assert_float(output.position.y - input.position.y).is_equal_approx(VoxelWorldData.slope_rise(block) * 0.5, 0.00001)
+		var cell: Vector3i = Vector3i((block - 9) * 2, 0, 0)
+		assert_vector(_game.logistics_data.direction_at(cell)).is_equal(VoxelWorldData.slope_direction(block))
+	assert_int(_game.logistics_view.find_children("PortRenderPool", "", true, false).size()).is_equal(0)
 
 
 func test_slope_ore_crosses_render_chunk_boundary_without_jump_or_identity_change() -> void:

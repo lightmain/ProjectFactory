@@ -49,6 +49,8 @@ func _ready() -> void:
 	if initial_snapshot == null:
 		world_data.generate_flat()
 		logistics_data.bind_world(world_data, game_config.mining_interval, game_config.mining_amount)
+		if game_config.transport_backend == "rust" and not logistics_data.enable_rust_transport():
+			push_error(logistics_data.transport_error())
 	else:
 		world_id = initial_snapshot.world_id if not initial_snapshot.world_id.is_empty() else SaveGameStore.new_id()
 		world_name = initial_snapshot.world_name
@@ -60,6 +62,7 @@ func _ready() -> void:
 		var simulation: Dictionary = logistics_data.mining_settings()
 		game_config.mining_interval = simulation["interval"]
 		game_config.mining_amount = simulation["amount"]
+		game_config.transport_backend = logistics_data.transport_backend()
 		player.position = initial_snapshot.position
 		player.velocity = initial_snapshot.velocity
 		player.spawn_position = initial_snapshot.spawn
@@ -67,11 +70,14 @@ func _ready() -> void:
 		selected_block = initial_snapshot.selected_block
 		_build_rotation = initial_snapshot.build_rotation
 		initial_snapshot = null
+	logistics_data.enable_pure_segments()
+	world_view.bind_logistics(logistics_data)
 	world_view.bind_world(world_data)
 	logistics_view = LogisticsView.new()
 	logistics_view.name = "Logistics"
 	add_child(logistics_view)
 	logistics_view.bind_logistics(logistics_data, world_data, player.camera)
+	logistics_view.bind_surface_view(world_view)
 	_apply_game_config()
 	game_config.changed.connect(_apply_game_config)
 	free_camera = FreeCameraRig.new()
@@ -126,6 +132,9 @@ func _apply_game_config() -> void:
 	if is_instance_valid(logistics_view):
 		var distance: float = game_config.ore_render_distance
 		logistics_view.render_distance = distance if is_finite(distance) and distance > 0.0 else 0.0
+		logistics_view.ore_render_max_height_above_camera = GameConfig.validated_ore_render_height(
+			game_config.ore_render_max_height_above_camera
+		)
 
 
 func _process(delta: float) -> void:

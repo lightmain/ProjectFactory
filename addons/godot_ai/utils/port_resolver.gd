@@ -21,6 +21,12 @@ const SNAPSHOT_DIAGNOSTIC_CATEGORIES := [
 	"snapshot_size", "snapshot_json", "snapshot_shape", "collector_null", "row_shape",
 	"row_pid", "row_chain", "row_identity", "lineage_cycle",
 ]
+## Public lifecycle evidence uses a smaller, stable vocabulary than the
+## internal collector diagnostics. Keep the detailed category internally so a
+## future fix can distinguish malformed JSON from an inaccessible ancestor.
+const SNAPSHOT_FAILURE_CATEGORIES := [
+	"process_query", "json_shape", "ancestor_capture", "identity_mismatch",
+]
 static var _process_spawn_mutex := Mutex.new()
 
 enum PortOccupancy { UNKNOWN, FREE, OCCUPIED }
@@ -398,6 +404,11 @@ static func pid_alive(pid: int, snapshot: Variant = null) -> bool:
 ## Linux captures the same bounded ancestry using procfs; macOS keeps ps.
 ## The process enumeration stays inside PowerShell; only the bounded target
 ## ancestry crosses back into Godot, without logging command-line metadata.
+## Windows keeps a dead parent's PID in ParentProcessId, and that PID can be
+## reused by a later process, even one of our own descendants, which turns the
+## walk into a cycle. A "parent" created after its child is such a reused PID,
+## not an ancestor, so the chain ends there (parent_pid 0). This only ever
+## shortens the ancestry; it can never add a lineage or brand match.
 static func capture_process_snapshot(pid: int, diagnostics: Variant = null) -> Variant:
 	if OS.get_name() == "Linux":
 		return LinuxProc.process_snapshot(pid)
@@ -419,18 +430,23 @@ static func capture_process_snapshot(pid: int, diagnostics: Variant = null) -> V
 
 static func _windows_process_snapshot_script(pid: int) -> String:
 	return (
-		"$rows = @(); $current = %d; $seen = @{}; $capture_failed = $false; "
+		"$rows = @(); $current = %d; $seen = @{}; $capture_failed = $false; $child_created = $null; "
 		+ "$processes = @{}; try { Get-CimInstance Win32_Process -ErrorAction Stop | "
 		+ "ForEach-Object { $processes[[int]$_.ProcessId] = $_ } } catch {}; "
 		+ "for ($depth = 0; $depth -lt 16 -and $current -gt 1; $depth++) { "
 		+ "if ($seen.ContainsKey($current)) { break }; $seen[$current] = $true; "
 		+ "$p = $processes[$current]; "
 		+ "if ($null -eq $p) { "
-		+ "try { $identity = [string](Get-Process -Id $current -ErrorAction Stop).StartTime.ToFileTimeUtc(); "
+		+ "try { $started = (Get-Process -Id $current -ErrorAction Stop).StartTime; "
+		+ "if ($child_created -is [datetime] -and $started -gt $child_created) { break }; "
+		+ "$identity = [string]$started.ToFileTimeUtc(); "
 		+ "$rows += @{pid=$current;parent_pid=0;identity=$identity;commandline=''} } catch { if ($_.CategoryInfo.Category -ne 'ObjectNotFound') { $capture_failed = $true } }; break }; "
-		+ "$rows += @{pid=[int]$p.ProcessId;parent_pid=[int]$p.ParentProcessId; "
+		+ "$parent_pid = [int]$p.ParentProcessId; $parent = $processes[$parent_pid]; "
+		+ "if ($null -ne $parent -and $parent.CreationDate -is [datetime] -and $p.CreationDate -is [datetime] "
+		+ "-and $parent.CreationDate -gt $p.CreationDate) { $parent_pid = 0 }; "
+		+ "$rows += @{pid=[int]$p.ProcessId;parent_pid=$parent_pid; "
 		+ "identity=([string]$p.CreationDate + '|' + [string]$p.CommandLine);commandline=[string]$p.CommandLine}; "
-		+ "$current = [int]$p.ParentProcessId }; "
+		+ "$child_created = $p.CreationDate; $current = $parent_pid }; "
 		+ "if ($capture_failed) { 'null' } else { ConvertTo-Json -InputObject @($rows) -Compress -Depth 3 }"
 	) % pid
 
@@ -529,6 +545,39 @@ static func _snapshot_failure(
 				"elapsed_ms": clampi(elapsed_ms, -1, 600000), "count": 1,
 			})
 	return {"capture_error": true}
+
+
+## Map one internal collector refusal to the bounded category retained in the
+## editor log. `row_identity` at depth zero is malformed target metadata;
+## the same refusal on an ancestor is an ancestor-capture failure. A refusal
+## this table does not know stays "unknown" instead of borrowing a category.
+static func snapshot_failure_category(detail: String, depth := -1) -> String:
+	match detail:
+		"shell_exit", "empty_output", "invalid_pid", "collector_null":
+			return "process_query"
+		"lineage_cycle":
+			return "ancestor_capture"
+		"row_identity":
+			return "ancestor_capture" if depth > 0 else "json_shape"
+		"outer_size", "outer_json", "outer_shape", "snapshot_size", "snapshot_json", \
+		"snapshot_shape", "row_shape", "row_pid", "row_chain":
+			return "json_shape"
+	return "unknown"
+
+
+## Return only the creation-time portion of a captured identity. Windows rows
+## append the command line after `|`; Linux rows use `linux:<start>|<command>`.
+## The command line is intentionally never copied into diagnostics.
+static func process_creation_identity(pid: int, snapshot: Variant = null) -> String:
+	if pid <= 1 or not (snapshot is Dictionary) or capture_failed(snapshot):
+		return ""
+	var identity := str(_process_snapshot_row(snapshot, pid).get("identity", "")).strip_edges()
+	if identity.is_empty():
+		return ""
+	var separator := identity.find("|")
+	if separator > 0:
+		identity = identity.substr(0, separator).strip_edges()
+	return identity.substr(0, 128)
 
 
 

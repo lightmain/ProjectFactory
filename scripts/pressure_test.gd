@@ -79,7 +79,7 @@ func _run() -> void:
 		return
 	_duration = maxf(1.0, float(args[2])) if args.size() > 2 else 15.0
 	var started: int = Time.get_ticks_usec()
-	var snapshot: SessionSnapshot = SessionSnapshot.decode(store.load_named(store.latest_id()))
+	var snapshot: SessionSnapshot = store.load_named_snapshot(store.latest_id())
 	if snapshot == null:
 		printerr("Load failed: ", store.last_error)
 		quit(1)
@@ -147,29 +147,23 @@ func _benchmark(args: PackedStringArray, store: SaveGameStore) -> void:
 	var fingerprint: String = ""
 	var complete: bool = true
 	for round_index: int in range(rounds):
+		var before_decodes: int = store.snapshot_decodes
 		var started: int = Time.get_ticks_usec()
-		var state: Dictionary = store.load_named(save_id)
+		var snapshot: SessionSnapshot = store.load_named_snapshot(save_id, true)
 		var load_seconds: float = float(Time.get_ticks_usec() - started) / 1000000.0
-		if state.is_empty():
+		if snapshot == null:
 			printerr("Load failed: ", store.last_error)
 			quit(1)
 			return
-		var hash: HashingContext = HashingContext.new()
-		hash.start(HashingContext.HASH_SHA256)
-		hash.update(var_to_bytes(state))
-		var state_hash: String = hash.finish().hex_encode()
+		var state_hash: String = store.loaded_state_sha256
 		if not fingerprint.is_empty() and fingerprint != state_hash:
 			printerr("Save content changed between benchmark rounds.")
 			quit(1)
 			return
 		fingerprint = state_hash
-		started = Time.get_ticks_usec()
-		# Deliberately retain the existing second decode as the T17 baseline.
-		var snapshot: SessionSnapshot = SessionSnapshot.decode(state)
-		var decode_seconds: float = float(Time.get_ticks_usec() - started) / 1000000.0
-		state.clear()
-		if snapshot == null:
-			printerr("Second decode failed.")
+		var rebuilds: int = store.snapshot_decodes - before_decodes
+		if rebuilds != 1:
+			printerr("Successful load must rebuild exactly once.")
 			quit(1)
 			return
 		var route: Dictionary = PressureSaveBuilder.route_certificate(snapshot)
@@ -180,7 +174,7 @@ func _benchmark(args: PackedStringArray, store: SaveGameStore) -> void:
 		var initial_ores: int = snapshot.logistics.total_ore()
 		var report: Dictionary = PressureBenchmark.measure(snapshot, count, seconds, timeout)
 		report["load_validate_seconds"] = load_seconds
-		report["second_decode_seconds"] = decode_seconds
+		report["snapshot_rebuilds"] = rebuilds
 		report["route"] = route
 		report["initial_ores"] = initial_ores
 		report["final_ores"] = snapshot.logistics.total_ore()
@@ -202,7 +196,7 @@ func _benchmark(args: PackedStringArray, store: SaveGameStore) -> void:
 		print("PRESSURE_BENCHMARK_ROUND ", round_index + 1,
 			" tick=", JSON.stringify(report["tick"]), " complete=", report["complete"])
 	var result: Dictionary = {
-		"schema": 2, "mode": "isolated_rules", "save_id": save_id,
+		"schema": 3, "mode": "isolated_rules", "save_id": save_id,
 		"state_sha256": fingerprint, "engine": Engine.get_version_info()["string"],
 		"cpu": OS.get_processor_name(), "complete": complete, "rounds": reports,
 		"static_memory_peak_bytes": Performance.get_monitor(Performance.MEMORY_STATIC_MAX),

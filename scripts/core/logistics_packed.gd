@@ -8,7 +8,10 @@ const ROW_SIZE: int = 136
 const DIRECTIONS: Array[Vector3i] = [Vector3i.FORWARD, Vector3i.RIGHT, Vector3i.BACK, Vector3i.LEFT]
 
 
-static func write_row(bytes: PackedByteArray, index: int, cell: Vector3i, machine: LogisticsMachine) -> void:
+static func write_row(
+	bytes: PackedByteArray, index: int, cell: Vector3i,
+	machine: LogisticsMachine, progress_offset: float = 0.0, eligibility_is_quantity: bool = false
+) -> void:
 	var offset: int = index * ROW_SIZE
 	for axis: int in range(3):
 		bytes.encode_s32(offset + axis * 4, cell[axis])
@@ -17,7 +20,7 @@ static func write_row(bytes: PackedByteArray, index: int, cell: Vector3i, machin
 	bytes[offset + 14] = DIRECTIONS.find(machine.settled_direction)
 	bytes[offset + 15] = machine.input_cursor
 	bytes.encode_s64(offset + 16, machine.quantity)
-	bytes.encode_s64(offset + 24, machine.eligible_quantity)
+	bytes.encode_s64(offset + 24, machine.quantity if eligibility_is_quantity else machine.eligible_quantity)
 	bytes.encode_s64(offset + 32, machine.last_output_tick)
 	bytes.encode_double(offset + 40, machine.interval)
 	bytes.encode_s64(offset + 48, machine.amount)
@@ -33,7 +36,7 @@ static func write_row(bytes: PackedByteArray, index: int, cell: Vector3i, machin
 		var ore_offset: int = offset + 88 + ore_index * 24
 		bytes.encode_s64(ore_offset, ore.id)
 		bytes[ore_offset + 8] = DIRECTIONS.find(ore.incoming_direction)
-		bytes.encode_double(ore_offset + 16, ore.progress)
+		bytes.encode_double(ore_offset + 16, ore.progress + progress_offset)
 
 
 static func read_row(bytes: PackedByteArray, index: int) -> Dictionary:

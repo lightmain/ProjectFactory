@@ -6,6 +6,9 @@ extends Node3D
 const CHUNK_CELLS: int = 8
 const MAX_IDLE_BATCHES: int = 32
 
+## Set before registration; ore visuals default to no shadows.
+var shadow_mode: GeometryInstance3D.ShadowCastingSetting = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
 class Visual:
 	extends RefCounted
 	var mesh: Mesh
@@ -70,6 +73,7 @@ func submit(
 			_remove_idle(batch)
 			_visuals[batch.visual_key].batches.erase(batch.chunk)
 		batch.configure(key, chunk, visual.mesh, visual.material)
+		batch.cast_shadow = shadow_mode
 		visual.batches[chunk] = batch
 	if batch.frame != _frame:
 		if batch.idle_index >= 0:

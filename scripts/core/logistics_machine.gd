@@ -19,13 +19,14 @@ var _placed_at: float
 var _produced_cycles: int = 0
 
 
-func save_state() -> Dictionary:
+func save_state(progress_offset: float = 0.0, eligibility_is_quantity: bool = false) -> Dictionary:
 	var ores: Array[Dictionary] = []
 	for ore: LogisticsOre in belt_ores:
-		ores.append({"id": ore.id, "incoming": ore.incoming_direction, "progress": ore.progress})
+		ores.append({"id": ore.id, "incoming": ore.incoming_direction, "progress": ore.progress + progress_offset})
 	return {
 		"block": block, "direction": direction, "settled": settled_direction,
-		"quantity": quantity, "eligible": eligible_quantity, "last_output": last_output_tick,
+		"quantity": quantity, "eligible": quantity if eligibility_is_quantity else eligible_quantity,
+		"last_output": last_output_tick,
 		"interval": interval, "amount": amount, "next": next_production,
 		"cursor": input_cursor, "placed": _placed_at, "cycles": _produced_cycles, "ores": ores,
 	}
@@ -71,7 +72,7 @@ static func decode(state: Dictionary, time: float, tick: int) -> LogisticsMachin
 	result.next_production = state["next"]
 	if result.eligible_quantity > result.quantity:
 		return null
-	if not result._valid_phase(float(tick) * LogisticsData.LOGIC_STEP):
+	if not result._valid_phase(tick):
 		return null
 	var rows: Array = state["ores"]
 	if rows.size() > 2 or (not VoxelWorldData.is_belt(result.block) and not rows.is_empty()):
@@ -101,7 +102,8 @@ static func decode(state: Dictionary, time: float, tick: int) -> LogisticsMachin
 	return result
 
 
-func _valid_phase(boundary: float) -> bool:
+func _valid_phase(tick: int) -> bool:
+	var boundary: float = float(tick) * LogisticsData.LOGIC_STEP
 	var enabled: bool = (
 		block == VoxelWorldData.Block.MINER and is_finite(interval)
 		and interval >= MIN_INTERVAL and amount > 0
@@ -111,12 +113,46 @@ func _valid_phase(boundary: float) -> bool:
 	var elapsed: float = floorf((boundary - _placed_at + LogisticsData.TIME_EPSILON) / interval)
 	if not is_finite(elapsed) or elapsed >= float(SnapshotValues.MAX_INTEGER):
 		return next_production == INF
-	var cycles: int = maxi(0, int(elapsed))
+	var cycles: int = _cycles_at_tick(tick)
 	if _produced_cycles != cycles:
 		return false
 	var deadline: float = _placed_at + float(cycles + 1) * interval
 	var expected: float = deadline if deadline > boundary and deadline > _placed_at else INF
 	return next_production == expected
+
+
+func _cycles_at_tick(tick: int) -> int:
+	# Normally elapsed uniquely determines the phase. At a rounded deadline,
+	# recover the prior phase before testing the actual production gate.
+	var pending_ticks: Array[int] = []
+	var pending_cycles: Array[int] = []
+	var cursor: int = tick
+	var cycles: int = 0
+	while true:
+		var boundary: float = float(cursor) * LogisticsData.LOGIC_STEP
+		cycles = _elapsed_cycles_at_tick(cursor)
+		if cycles == 0 or _placed_at + float(cycles) * interval <= boundary + LogisticsData.TIME_EPSILON:
+			break
+		if cursor == 0:
+			cycles = 0
+			break
+		# A gap of two guarantees that the previous outstanding deadline was
+		# already due, even if that previous tick itself had a rounding wait.
+		if _elapsed_cycles_at_tick(cursor - 1) + 1 < cycles:
+			break
+		pending_ticks.append(cursor)
+		pending_cycles.append(cycles)
+		cursor -= 1
+	for index: int in range(pending_ticks.size() - 1, -1, -1):
+		var boundary: float = float(pending_ticks[index]) * LogisticsData.LOGIC_STEP
+		if _placed_at + float(cycles + 1) * interval <= boundary + LogisticsData.TIME_EPSILON:
+			cycles = pending_cycles[index]
+	return cycles
+
+
+func _elapsed_cycles_at_tick(tick: int) -> int:
+	var boundary: float = float(tick) * LogisticsData.LOGIC_STEP
+	return maxi(0, int(floorf((boundary - _placed_at + LogisticsData.TIME_EPSILON) / interval)))
 
 
 func _init(kind: int, placed_at: float, mining_interval: float, mining_amount: int) -> void:

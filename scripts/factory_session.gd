@@ -152,7 +152,7 @@ func save_game(save_name: String = "", overwrite: bool = false) -> bool:
 func load_game(save_id: String = "") -> bool:
 	if save_id.is_empty():
 		save_id = store.latest_id()
-	var snapshot: SessionSnapshot = SessionSnapshot.decode(store.load_named(save_id))
+	var snapshot: SessionSnapshot = store.load_named_snapshot(save_id)
 	if snapshot == null:
 		menu.set_message(store.last_error if not store.last_error.is_empty() else "存档内容无效。", true)
 		return false
