@@ -135,3 +135,58 @@ func test_unknown_types_and_duplicate_ids_do_not_create_phantom_instances() -> v
 	_pool.end_frame()
 	assert_int(_pool.stats()["visible_items"]).is_equal(1)
 	assert_int(_pool.item_batch(1).multimesh.visible_instance_count).is_equal(1)
+
+
+func test_bulk_upload_preserves_real_gpu_transforms_and_recomputes_parent_inverse_per_frame() -> void:
+	await _assert_uploaded_transforms(false)
+
+
+func test_upload_without_native_helper_preserves_gpu_transforms_and_bounds() -> void:
+	await _assert_uploaded_transforms(true)
+
+
+func _assert_uploaded_transforms(disable_native: bool) -> void:
+	var native_expected: bool = false
+	if not disable_native and ClassDB.class_exists("RustConveyorNetwork"):
+		var helper: Object = ClassDB.instantiate("RustConveyorNetwork")
+		native_expected = helper.has_method("upload_multimesh")
+	for frame: int in range(2):
+		_pool.transform = Transform3D(
+			Basis.from_euler(Vector3(0.2, 0.7 + float(frame), -0.3)).scaled(Vector3(2, 1.5, 0.75)),
+			Vector3(15 + frame, 3, -6)
+		)
+		_pool.begin_frame()
+		var expected: Array[Transform3D] = []
+		for id: int in range(19 if frame == 0 else 3):
+			var cell: Vector3i = Vector3i(-8 if id % 2 == 0 else 8, 0, 0)
+			var transform: Transform3D = Transform3D(
+				Basis.from_euler(Vector3(0.1 * float(id), -0.3, 0.4)).scaled(Vector3(0.5, 1.5, 2)),
+				VoxelWorldData.cell_center(cell) + Vector3(0.01 * float(id), 0.04, 0)
+			)
+			expected.append(transform)
+			assert_bool(_pool.submit(id, &"iron_ore", cell, transform)).is_true()
+			if disable_native:
+				_pool.item_batch(id).set("_native_upload", null)
+		_pool.end_frame()
+		await get_tree().process_frame
+		assert_int(_pool.stats().get("batch_uploads", -1)).is_equal(2)
+		assert_int(_pool.stats().get("buffer_uploads", -1)).is_equal(2 if native_expected else 0)
+		assert_int(_pool.stats().get("inverse_calculations", -1)).is_equal(2)
+		var slots: Dictionary[ItemRenderBatch, int] = {}
+		for id: int in range(expected.size()):
+			var batch: ItemRenderBatch = _pool.item_batch(id)
+			var slot: int = slots.get(batch, 0)
+			slots[batch] = slot + 1
+			# The headless dummy renderer does not retain GPU transforms.
+			# The same suite also runs in a real graphical verification window.
+			var local: Transform3D = batch.transforms[slot] if DisplayServer.get_name() == "headless" else (
+				batch.multimesh.get_instance_transform(slot)
+			)
+			var uploaded: Transform3D = batch.global_transform * local
+			assert_vector(uploaded.origin).is_equal_approx(expected[id].origin, Vector3.ONE * 0.00001)
+			assert_vector(uploaded.basis.x).is_equal_approx(expected[id].basis.x, Vector3.ONE * 0.00001)
+			assert_vector(uploaded.basis.y).is_equal_approx(expected[id].basis.y, Vector3.ONE * 0.00001)
+			assert_vector(uploaded.basis.z).is_equal_approx(expected[id].basis.z, Vector3.ONE * 0.00001)
+			assert_bool(batch.multimesh.custom_aabb.encloses(
+				(batch.global_transform.affine_inverse() * expected[id]) * _mesh.get_aabb()
+			)).is_true()

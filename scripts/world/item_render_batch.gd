@@ -7,6 +7,8 @@ var chunk: Vector3i
 var frame: int = -1
 var idle_index: int = -1
 var transforms: Array[Transform3D] = []
+var world_inverse: Transform3D = Transform3D.IDENTITY
+var _native_upload: RefCounted
 
 
 func _init() -> void:
@@ -15,6 +17,10 @@ func _init() -> void:
 	multimesh.visible_instance_count = 0
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hide()
+	if ClassDB.class_exists("RustConveyorNetwork"):
+		var helper: Object = ClassDB.instantiate("RustConveyorNetwork")
+		if helper is RefCounted and helper.has_method("upload_multimesh"):
+			_native_upload = helper as RefCounted
 
 
 func configure(key: int, region: Vector3i, mesh: Mesh, material: Material) -> void:
@@ -24,7 +30,7 @@ func configure(key: int, region: Vector3i, mesh: Mesh, material: Material) -> vo
 	material_override = material
 
 
-func upload() -> void:
+func upload() -> bool:
 	var count: int = transforms.size()
 	if count > multimesh.instance_count:
 		var capacity: int = maxi(8, multimesh.instance_count)
@@ -32,16 +38,24 @@ func upload() -> void:
 			capacity *= 2
 		# Resizing discards the old GPU buffer; upload the whole active prefix below.
 		multimesh.instance_count = capacity
+	if _native_upload != null:
+		var uploaded: Variant = _native_upload.call("upload_multimesh", multimesh, transforms)
+		if uploaded is bool and uploaded:
+			visible = count > 0
+			return true
 	var mesh_bounds: AABB = multimesh.mesh.get_aabb()
 	var bounds: AABB
 	for index: int in range(count):
-		multimesh.set_instance_transform(index, transforms[index])
-		var item_bounds: AABB = transforms[index] * mesh_bounds
+		var transform: Transform3D = transforms[index]
+		# Keep the default backend usable without an installed native extension.
+		multimesh.set_instance_transform(index, transform)
+		var item_bounds: AABB = transform * mesh_bounds
 		bounds = item_bounds if index == 0 else bounds.merge(item_bounds)
 	# Reserved, unused slots must not enlarge the culling bounds.
 	multimesh.custom_aabb = bounds
 	multimesh.visible_instance_count = count
 	visible = count > 0
+	return false
 
 
 func retire() -> void:

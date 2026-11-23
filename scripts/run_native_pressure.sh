@@ -2,13 +2,15 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)"
-OUTPUT="${1:?Usage: bash scripts/run_native_pressure.sh NEW_OUTPUT [rust|gdscript] [headless|window]}"
+OUTPUT="${1:?Usage: bash scripts/run_native_pressure.sh NEW_OUTPUT [rust|gdscript] [headless|window] [all|1k|10k|100k|million] [fixed|small_translation]}"
 BACKEND="${2:-rust}"
 DISPLAY_MODE="${3:-headless}"
 SELECTED_CASE="${4:-all}"
+CAMERA_TRACK="${5:-fixed}"
 GODOT_BIN="${GODOT_BIN:-godot}"
 [[ "$BACKEND" == rust || "$BACKEND" == gdscript ]]
 [[ "$DISPLAY_MODE" == headless || "$DISPLAY_MODE" == window ]]
+[[ "$CAMERA_TRACK" == fixed || "$CAMERA_TRACK" == small_translation ]]
 if [[ -e "$OUTPUT" ]]; then
   echo "Output already exists: $OUTPUT" >&2
   exit 2
@@ -29,8 +31,8 @@ if [[ "$SELECTED_CASE" != all ]]; then
     *) echo "Unknown case: $SELECTED_CASE" >&2; exit 2 ;;
   esac
 fi
-INVOCATIONS="$(python3 -c 'import json,sys; engine,root,out,backend,display,*cases=sys.argv[1:]; print(json.dumps([[engine]+(["--headless"] if display=="headless" else [])+["--path",root,"-s","res://scripts/pressure_native_benchmark.gd","--",*case.split(":")[1:],out+"/"+case.split(":")[0],"300","120",backend,out+"/provenance.json"] for case in cases]))' \
-  "$GODOT_BIN" "$PROJECT_ROOT" "$OUTPUT" "$BACKEND" "$DISPLAY_MODE" "${CASES[@]}")"
+INVOCATIONS="$(python3 -c 'import json,sys; engine,root,out,backend,display,track,*cases=sys.argv[1:]; print(json.dumps([[engine]+(["--headless"] if display=="headless" else [])+["--path",root,"-s","res://scripts/pressure_native_benchmark.gd","--",*case.split(":")[1:],out+"/"+case.split(":")[0],"300","120",backend,out+"/provenance.json",track] for case in cases]))' \
+  "$GODOT_BIN" "$PROJECT_ROOT" "$OUTPUT" "$BACKEND" "$DISPLAY_MODE" "$CAMERA_TRACK" "${CASES[@]}")"
 python3 "$PROJECT_ROOT/scripts/native_pressure_provenance.py" "$OUTPUT/provenance.json" "$INVOCATIONS"
 
 # Each process finishes before the next starts; never benchmark concurrently.
@@ -41,7 +43,7 @@ for CASE in "${CASES[@]}"; do
   # macOS Bash 3.2 treats an empty array as unset with nounset enabled.
   /usr/bin/time "${TIME_ARGS[@]}" "$GODOT_BIN" ${DISPLAY_ARGS[@]+"${DISPLAY_ARGS[@]}"} \
     --path "$PROJECT_ROOT" -s res://scripts/pressure_native_benchmark.gd \
-    -- "$SIZE" "$HEIGHT" "$OUTPUT/$LABEL" 300 120 "$BACKEND" "$OUTPUT/provenance.json" > "$LOG" 2>&1
+    -- "$SIZE" "$HEIGHT" "$OUTPUT/$LABEL" 300 120 "$BACKEND" "$OUTPUT/provenance.json" "$CAMERA_TRACK" > "$LOG" 2>&1
   if grep -Eq 'SCRIPT ERROR:|ERROR:' "$LOG" || ! grep -q '^NATIVE_PRESSURE_RESULT ' "$LOG"; then
     echo "Measurement failed; inspect $LOG" >&2
     exit 1

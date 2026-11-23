@@ -209,6 +209,10 @@ func _reset_candidate_work() -> void:
 	candidate_copies = 0
 
 
+func begin_candidate_frame() -> void:
+	_reset_candidate_work()
+
+
 static func _candidate_partition(cell: Vector3i) -> Vector3i:
 	return Vector3i(
 		floori(float(cell.x) / CANDIDATE_PARTITION_SIZE),

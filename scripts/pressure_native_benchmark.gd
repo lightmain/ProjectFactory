@@ -1,5 +1,5 @@
 extends SceneTree
-## -- SIZE HEIGHT OUTPUT [SAMPLES WARMUP BACKEND]
+## -- SIZE HEIGHT OUTPUT [SAMPLES WARMUP BACKEND PROVENANCE CAMERA_TRACK]
 ## Uses the original pressure generator and the complete mounted FactoryGame.
 ## Each measured frame advances one fixed tick and submits the real nearby view.
 
@@ -21,6 +21,9 @@ var _producer_cells: Array[Vector3i] = []
 var _work_samples: Array[Dictionary] = []
 var _report: Dictionary = {}
 var _times: Dictionary[String, Array] = {}
+var _camera_track: String = "fixed"
+var _camera_start: Transform3D
+var _camera_frames: int = 0
 
 
 func _initialize() -> void:
@@ -39,7 +42,7 @@ func _on_frame_drawn() -> void:
 func _mount() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	if args.size() < 3:
-		printerr("Usage: -- SIZE HEIGHT NEW_OUTPUT [SAMPLES WARMUP rust|gdscript]")
+		printerr("Usage: -- SIZE HEIGHT NEW_OUTPUT [SAMPLES WARMUP rust|gdscript PROVENANCE fixed|small_translation]")
 		quit(2)
 		return
 	var size: int = int(args[0])
@@ -49,8 +52,10 @@ func _mount() -> void:
 	_warmup = int(args[4]) if args.size() > 4 else 120
 	var backend: String = args[5] if args.size() > 5 else "rust"
 	_report["provenance"] = args[6] if args.size() > 6 else "unavailable: direct script invocation"
+	_camera_track = args[7] if args.size() > 7 else "fixed"
 	if _samples < 1 or _samples > 100000 or _warmup < 0 or _warmup > 3600 or (
-		backend not in ["rust", "gdscript"] or DirAccess.dir_exists_absolute(_output)
+		backend not in ["rust", "gdscript"] or _camera_track not in ["fixed", "small_translation"]
+		or DirAccess.dir_exists_absolute(_output)
 	):
 		quit(2)
 		return
@@ -106,6 +111,8 @@ func _mount() -> void:
 	root.add_child(_game)
 	current_scene = _game
 	isolate_game(_game)
+	_camera_start = _game.player.camera.global_transform
+	_report["camera_track"] = _camera_track
 	_report["mount_seconds"] = float(Time.get_ticks_usec() - started) / 1000000.0
 	_report["backend"] = _game.logistics_data.transport_backend()
 	_report["warmup_ticks"] = _warmup
@@ -163,6 +170,7 @@ func _measure() -> void:
 		quit(1)
 		return
 	var advance_usec: int = Time.get_ticks_usec() - started
+	_update_camera_track()
 	_game.logistics_view.refresh_from_data(0.0)
 	if not _game.logistics_view.display_error().is_empty():
 		printerr("Pressure display failed: ", _game.logistics_view.display_error())
@@ -190,7 +198,24 @@ func _measure() -> void:
 	_sampled += 1
 	_pending_measured_interval = true
 	_work_samples.append({"tick": _game.logistics_data.logic_tick(),
-		"work": stats, "view": view})
+		"work": stats, "view": view, "camera_position": [
+			_game.player.camera.global_position.x,
+			_game.player.camera.global_position.y,
+			_game.player.camera.global_position.z,
+		]})
+
+
+func _update_camera_track() -> void:
+	if _camera_track == "fixed":
+		return
+	_camera_frames += 1
+	# Continuous small horizontal motion and turning, within the anchor budget.
+	# Tick advances and user input isolation remain identical to the fixed run.
+	var phase: float = float(_camera_frames) * 0.02
+	var position: Vector3 = _camera_start.origin + Vector3(0.2 * sin(phase), 0, 0.2 * (cos(phase) - 1.0))
+	_game.player.camera.global_transform = Transform3D(
+		Basis(Vector3.UP, 0.05 * sin(phase)) * _camera_start.basis, position
+	)
 
 
 func _population() -> Dictionary:

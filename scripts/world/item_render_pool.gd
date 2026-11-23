@@ -25,6 +25,9 @@ var _item_slots: Dictionary[int, int] = {}
 var _frame: int = 0
 var _frame_open: bool = false
 var _next_batch_id: int = 0
+var _buffer_uploads: int = 0
+var _batch_uploads: int = 0
+var _inverse_calculations: int = 0
 
 
 func register_visual(item_id: StringName, mesh: Mesh, material: Material) -> void:
@@ -45,6 +48,9 @@ func begin_frame() -> void:
 	assert(not _frame_open)
 	_frame_open = true
 	_frame += 1
+	_buffer_uploads = 0
+	_batch_uploads = 0
+	_inverse_calculations = 0
 	_item_batches.clear()
 	_item_slots.clear()
 	_current_batches.clear()
@@ -83,10 +89,12 @@ func submit(
 		batch.global_transform = Transform3D(
 			Basis.IDENTITY, Vector3(chunk) * float(CHUNK_CELLS) * VoxelWorldData.CELL_SIZE
 		)
+		batch.world_inverse = batch.global_transform.affine_inverse()
+		_inverse_calculations += 1
 		_current_batches.append(batch)
 	_item_batches[id] = batch
 	_item_slots[id] = batch.transforms.size()
-	batch.transforms.append(batch.global_transform.affine_inverse() * world_transform)
+	batch.transforms.append(batch.world_inverse * world_transform)
 	return true
 
 
@@ -98,7 +106,9 @@ func end_frame() -> void:
 			batch.idle_index = _idle_batches.size()
 			_idle_batches.append(batch)
 	for batch: ItemRenderBatch in _current_batches:
-		batch.upload()
+		if batch.upload():
+			_buffer_uploads += 1
+		_batch_uploads += 1
 	while _idle_batches.size() > MAX_IDLE_BATCHES:
 		var batch: ItemRenderBatch = _idle_batches.pop_back()
 		_visuals[batch.visual_key].batches.erase(batch.chunk)
@@ -137,6 +147,9 @@ func stats() -> Dictionary[String, int]:
 		"active_batches": _active_batches.size(),
 		"cached_batches": _idle_batches.size(),
 		"capacity": capacity,
+		"buffer_uploads": _buffer_uploads,
+		"batch_uploads": _batch_uploads,
+		"inverse_calculations": _inverse_calculations,
 	}
 
 

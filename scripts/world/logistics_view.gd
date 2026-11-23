@@ -3,6 +3,15 @@ extends Node3D
 ## Disposable nearby decorations. Removing this view never changes factory state.
 
 const ORE_SURFACE_OFFSET: float = 0.04
+const CANDIDATE_MOVE_BUDGET: float = 0.5
+const CANDIDATE_ROUNDING_MARGIN: float = 0.0001
+
+class Facility:
+	extends RefCounted
+	var cell: Vector3i
+	var minimum_ore_y: float = INF
+	var first: MeshInstance3D
+	var second: MeshInstance3D
 
 ## Injected by FactoryGame from GameConfig; zero disables nearby decorations.
 var render_distance: float = 0.0
@@ -22,6 +31,19 @@ var _item_ids: PackedInt64Array = PackedInt64Array()
 var _item_cells: Array[Vector3i] = []
 var _item_transforms: Array[Transform3D] = []
 var _display_error: String = ""
+var _candidate_valid: bool = false
+var _candidate_anchor: Vector3
+var _candidate_position: Vector3
+var _candidate_radius: float = 0.0
+var _candidate_core: Array[Vector3i] = []
+var _candidate_boundary: Array[Vector3i] = []
+var _candidate_cells: Array[Vector3i] = []
+var _selection_changed: bool = true
+var _facilities: Dictionary[Vector3i, Facility] = {}
+var _belts: Array[Facility] = []
+var _inventories: Array[Facility] = []
+var _ore_cells: Array[Vector3i] = []
+var _ore_height: float = NAN
 
 
 func bind_logistics(logistics: LogisticsData, world: VoxelWorldData, camera: Camera3D) -> void:
@@ -71,6 +93,8 @@ func _update_surface_camera() -> void:
 
 
 func set_camera(camera: Camera3D) -> void:
+	if _camera != camera:
+		_candidate_valid = false
 	_camera = camera
 	_update_surface_camera()
 
@@ -85,6 +109,10 @@ func _process(_delta: float) -> void:
 func refresh_from_data(frame_offset: float = 0.0) -> void:
 	_display_error = ""
 	_stage_stats.clear()
+	_stage_stats["candidate_exact_checks"] = 0
+	_stage_stats["candidate_core_reused"] = 0
+	_stage_stats["candidate_rebuilds"] = 0
+	_stage_stats["metadata_prepared"] = 0
 	if _logistics != null:
 		_logistics.begin_display_frame()
 	_update_surface_camera()
@@ -96,38 +124,21 @@ func refresh_from_data(frame_offset: float = 0.0) -> void:
 	_stage_stats["candidate_usec"] = Time.get_ticks_usec() - stage_start
 	_stage_stats["candidates"] = cells.size()
 	stage_start = Time.get_ticks_usec()
-	var nearby: Dictionary[Vector3i, bool] = {}
-	for cell: Vector3i in cells:
-		nearby[cell] = true
-	# Only the previously visible decorations are visited for retirement.
-	for cell: Vector3i in _visuals.keys():
-		if not nearby.has(cell):
-			_invalidate_cell(cell)
+	_prepare_selection(cells)
 	var maximum_ore_y: float = (
 		_camera.global_position.y + GameConfig.validated_ore_render_height(ore_render_max_height_above_camera)
 	) if is_instance_valid(_camera) else -INF
-	var ore_cells: Array[Vector3i] = []
-	for cell: Vector3i in cells:
-		if not _visuals.has(cell):
-			_visuals[cell] = _create_visual(cell)
-		var visual: Node3D = _visuals[cell]
-		var block: int = _world.get_block(cell)
-		if VoxelWorldData.is_belt(block):
-			# Flat and sloped belt paths never descend below the cell's thin surface.
-			# A crossing slope remains a candidate and is tested per final ore centre.
-			# Use the same Vector3 precision and addition order as the rendered centre.
-			var minimum_ore_y: float = (
-				Vector3(0.0, float(cell.y) * VoxelWorldData.CELL_SIZE + VoxelWorldData.BELT_HEIGHT, 0.0)
-				+ Vector3.UP * ORE_SURFACE_OFFSET
-			).y
-			if minimum_ore_y <= maximum_ore_y:
-				ore_cells.append(cell)
-			continue
-		var count: int = _logistics.ore_count(cell)
-		var first: MeshInstance3D = visual.get_node("Ore1") as MeshInstance3D
-		var second: MeshInstance3D = visual.get_node("Ore2") as MeshInstance3D
-		first.visible = count > 0
-		second.visible = count > 1
+	if _ore_height != maximum_ore_y:
+		_ore_cells.clear()
+		for facility: Facility in _belts:
+			if facility.minimum_ore_y <= maximum_ore_y:
+				_ore_cells.append(facility.cell)
+		_ore_height = maximum_ore_y
+	for facility: Facility in _inventories:
+		var count: int = _logistics.ore_count(facility.cell)
+		facility.first.visible = count > 0
+		facility.second.visible = count > 1
+	var ore_cells: Array[Vector3i] = _ore_cells
 	_stage_stats["decoration_usec"] = Time.get_ticks_usec() - stage_start
 	_item_ids.clear()
 	_item_cells.clear()
@@ -170,6 +181,9 @@ func refresh_from_data(frame_offset: float = 0.0) -> void:
 	for index: int in range(_item_ids.size()):
 		item_render_pool.submit(_item_ids[index], &"iron_ore", _item_cells[index], _item_transforms[index])
 	item_render_pool.end_frame()
+	var pool_stats: Dictionary[String, int] = item_render_pool.stats()
+	_stage_stats["buffer_uploads"] = pool_stats["buffer_uploads"]
+	_stage_stats["inverse_calculations"] = pool_stats["inverse_calculations"]
 	_stage_stats["submission_usec"] = Time.get_ticks_usec() - stage_start
 	_stage_stats["visible_items"] = _item_ids.size()
 
@@ -183,14 +197,31 @@ func stage_stats() -> Dictionary[String, int]:
 
 
 func _nearby_cells() -> Array[Vector3i]:
-	var cells: Array[Vector3i] = []
 	if (
 		not is_finite(render_distance) or render_distance <= 0.0
 		or not is_instance_valid(_camera) or not _camera.global_position.is_finite()
 	):
-		return cells
+		_selection_changed = not _candidate_cells.is_empty() or not _candidate_valid
+		_candidate_valid = false
+		_candidate_cells.clear()
+		_candidate_core.clear()
+		_candidate_boundary.clear()
+		return _candidate_cells
 	var position: Vector3 = _camera.global_position
-	var radius: Vector3 = Vector3.ONE * render_distance
+	if _candidate_valid and _candidate_radius == render_distance:
+		if position == _candidate_position:
+			_stage_stats["candidate_core_reused"] = _candidate_core.size()
+			return _candidate_cells
+		if position.distance_squared_to(_candidate_anchor) <= CANDIDATE_MOVE_BUDGET * CANDIDATE_MOVE_BUDGET:
+			_stage_stats["candidate_core_reused"] = _candidate_core.size()
+			return _select_boundary(position)
+	_candidate_anchor = position
+	_candidate_radius = render_distance
+	_candidate_core.clear()
+	_candidate_boundary.clear()
+	_stage_stats["candidate_rebuilds"] = 1
+	var expanded: float = render_distance + CANDIDATE_MOVE_BUDGET + CANDIDATE_ROUNDING_MARGIN
+	var radius: Vector3 = Vector3.ONE * expanded
 	# Clamp in floating point before converting even very distant cameras to cells.
 	var low: Vector3 = ((position - radius) / VoxelWorldData.CELL_SIZE - Vector3.ONE * 0.5).max(
 		Vector3(_world.minimum)
@@ -199,27 +230,97 @@ func _nearby_cells() -> Array[Vector3i]:
 		Vector3(_world.maximum - Vector3i.ONE)
 	)
 	if low.x > high.x or low.y > high.y or low.z > high.z:
-		return cells
+		return _select_boundary(position)
 	var minimum: Vector3i = Vector3i(floori(low.x), floori(low.y), floori(low.z))
 	var maximum: Vector3i = Vector3i(floori(high.x), floori(high.y), floori(high.z))
 	for cell: Vector3i in _logistics.candidate_cells(minimum, maximum):
+		var squared: float = position.distance_squared_to(VoxelWorldData.cell_center(cell))
+		_stage_stats["candidate_exact_checks"] += 1
+		var inner: float = maxf(0.0, render_distance - CANDIDATE_MOVE_BUDGET - CANDIDATE_ROUNDING_MARGIN)
+		if inner > 0.0 and squared < inner * inner:
+			_candidate_core.append(cell)
+		elif squared <= expanded * expanded:
+			_candidate_boundary.append(cell)
+	return _select_boundary(position)
+
+
+func _select_boundary(position: Vector3) -> Array[Vector3i]:
+	var selected: Array[Vector3i] = _candidate_core.duplicate()
+	for cell: Vector3i in _candidate_boundary:
+		_stage_stats["candidate_exact_checks"] += 1
 		if position.distance_squared_to(VoxelWorldData.cell_center(cell)) <= render_distance * render_distance:
-			cells.append(cell)
-	return cells
+			selected.append(cell)
+	_selection_changed = not _candidate_valid or selected != _candidate_cells
+	_candidate_cells = selected
+	_candidate_position = position
+	_candidate_valid = true
+	return _candidate_cells
+
+
+func _prepare_selection(cells: Array[Vector3i]) -> void:
+	if not _selection_changed:
+		return
+	_selection_changed = false
+	var nearby: Dictionary[Vector3i, bool] = {}
+	for cell: Vector3i in cells:
+		nearby[cell] = true
+	for cell: Vector3i in _visuals.keys():
+		if not nearby.has(cell):
+			_remove_visual(cell)
+	_belts.clear()
+	_inventories.clear()
+	for cell: Vector3i in cells:
+		var facility: Facility = _facilities.get(cell)
+		if facility == null:
+			facility = Facility.new()
+			facility.cell = cell
+			_visuals[cell] = _create_visual(cell)
+			if VoxelWorldData.is_belt(_world.get_block(cell)):
+				# Match the rendered Vector3 precision and addition order.
+				facility.minimum_ore_y = (
+					Vector3(0.0, float(cell.y) * VoxelWorldData.CELL_SIZE + VoxelWorldData.BELT_HEIGHT, 0.0)
+					+ Vector3.UP * ORE_SURFACE_OFFSET
+				).y
+			else:
+				facility.first = _visuals[cell].get_node("Ore1") as MeshInstance3D
+				facility.second = _visuals[cell].get_node("Ore2") as MeshInstance3D
+			_facilities[cell] = facility
+			_stage_stats["metadata_prepared"] += 1
+		if facility.first == null:
+			_belts.append(facility)
+		else:
+			_inventories.append(facility)
+	_ore_height = NAN
 
 
 func _clear() -> void:
 	for visual: Node3D in _visuals.values():
 		visual.free()
 	_visuals.clear()
+	_facilities.clear()
+	_belts.clear()
+	_inventories.clear()
+	_ore_cells.clear()
+	_candidate_core.clear()
+	_candidate_boundary.clear()
+	_candidate_cells.clear()
+	_candidate_valid = false
+	_selection_changed = true
+	_ore_height = NAN
 	if item_render_pool != null:
 		item_render_pool.clear()
 
 
 func _invalidate_cell(cell: Vector3i) -> void:
+	_candidate_valid = false
+	_remove_visual(cell)
+
+
+func _remove_visual(cell: Vector3i) -> void:
 	if _visuals.has(cell):
 		_visuals[cell].free()
 		_visuals.erase(cell)
+	_facilities.erase(cell)
 
 
 func _create_visual(cell: Vector3i) -> Node3D:

@@ -7,6 +7,11 @@ class ObservedLogistics:
 	var full_calls: int = 0
 	var cell_calls: int = 0
 	var requested: Array[Vector3i] = []
+	var candidate_calls: int = 0
+
+	func candidate_cells(minimum: Vector3i, maximum: Vector3i) -> Array[Vector3i]:
+		candidate_calls += 1
+		return super.candidate_cells(minimum, maximum)
 
 	func sample_belts(extra_time: float = 0.0) -> Array[LogisticsOreQueue]:
 		full_calls += 1
@@ -58,6 +63,95 @@ func _running_line() -> int:
 	var ores: Array[LogisticsOre] = _data.belt_ores(Vector3i.ZERO)
 	assert_int(ores.size()).is_equal(1)
 	return ores[0].id if not ores.is_empty() else -1
+
+
+func test_stationary_and_rotating_camera_reuse_selection_and_metadata() -> void:
+	var id: int = _running_line()
+	_view.refresh_from_data()
+	var calls: int = _data.candidate_calls
+	var initial: Vector3 = _view.item_render_pool.item_transform(id).origin
+	_data.advance(0.125)
+	_camera.rotation = Vector3(0.4, 1.0, 0.0)
+	_view.refresh_from_data()
+	assert_int(_data.candidate_calls).is_equal(calls)
+	assert_int(_view.stage_stats().get("candidate_exact_checks", -1)).is_equal(0)
+	assert_int(_view.stage_stats().get("metadata_prepared", -1)).is_equal(0)
+	assert_bool(_view.item_render_pool.has_item(id)).is_true()
+	assert_bool(_view.item_render_pool.item_transform(id).origin != initial).is_true()
+
+
+func test_small_translations_check_boundary_and_match_direct_sphere_selection() -> void:
+	for x: int in range(-6, 7):
+		for z: int in range(-6, 7):
+			_place(Vector3i(x, 0, z))
+	_view.render_distance = 2.0
+	_view.refresh_from_data()
+	var calls: int = _data.candidate_calls
+	var camera_start: Vector3 = _camera.global_position
+	for step: int in range(1, 10):
+		_camera.global_position = camera_start + Vector3(0.05 * float(step), 0, 0)
+		_view.refresh_from_data()
+		var expected: Array[Vector3i] = []
+		for cell: Vector3i in _data.machine_cells():
+			if _camera.global_position.distance_squared_to(VoxelWorldData.cell_center(cell)) <= 4.0:
+				expected.append(cell)
+		assert_int(_data.requested.size()).is_equal(expected.size())
+		for cell: Vector3i in expected:
+			assert_bool(_data.requested.has(cell)).is_true()
+		assert_int(_data.candidate_calls).is_equal(calls)
+		assert_int(_view.stage_stats().get("candidate_core_reused", -1)).is_greater(0)
+		assert_int(_view.stage_stats().get("metadata_prepared", -1)).is_less(expected.size())
+	_camera.global_position = camera_start + Vector3(1.0, 0, 0)
+	_view.refresh_from_data()
+	assert_int(_data.candidate_calls).is_greater(calls)
+
+
+func test_edit_and_reset_invalidate_stationary_selection() -> void:
+	_place(Vector3i.ZERO)
+	_view.refresh_from_data()
+	var calls: int = _data.candidate_calls
+	_place(Vector3i.RIGHT)
+	_view.refresh_from_data()
+	assert_int(_data.candidate_calls).is_greater(calls)
+	assert_bool(_data.requested.has(Vector3i.RIGHT)).is_true()
+	assert_bool(_world.break_block(Vector3i.ZERO)).is_true()
+	_view.refresh_from_data()
+	assert_bool(_data.requested.has(Vector3i.ZERO)).is_false()
+	var snapshot: Dictionary = _data.save_state()
+	assert_bool(_data.restore_state(snapshot)).is_true()
+	calls = _data.candidate_calls
+	_view.refresh_from_data()
+	assert_int(_data.candidate_calls).is_greater(calls)
+	assert_bool(_data.requested == [Vector3i.RIGHT]).is_true()
+
+
+func test_movement_budget_equality_vertical_diagonal_and_reverse_paths() -> void:
+	for x: int in range(-6, 7):
+		for z: int in range(-6, 7):
+			_place(Vector3i(x, 0, z))
+	_view.render_distance = 2.0
+	var origin: Vector3 = _camera.global_position
+	_view.refresh_from_data()
+	var calls: int = _data.candidate_calls
+	_camera.global_position = origin + Vector3.RIGHT * 0.5
+	_view.refresh_from_data()
+	assert_int(_data.candidate_calls).is_equal(calls)
+	_camera.global_position = origin + Vector3.RIGHT * 0.5001
+	_view.refresh_from_data()
+	assert_int(_data.candidate_calls).is_greater(calls)
+	for offset: Vector3 in [
+		Vector3(0, 0.5, 0), Vector3(0.25, 0.25, 0.25),
+		Vector3(-0.25, -0.25, -0.25), Vector3.ZERO,
+	]:
+		_camera.global_position = origin + offset
+		_view.refresh_from_data()
+		var expected: Array[Vector3i] = []
+		for cell: Vector3i in _data.machine_cells():
+			if _camera.global_position.distance_squared_to(VoxelWorldData.cell_center(cell)) <= 4.0:
+				expected.append(cell)
+		assert_int(_data.requested.size()).is_equal(expected.size())
+		for cell: Vector3i in expected:
+			assert_bool(_data.requested.has(cell)).is_true()
 
 
 func test_sphere_boundary_and_vertical_distance_filter_before_copying() -> void:

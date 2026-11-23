@@ -265,6 +265,7 @@ func sample_cells(cells: Array[Vector3i], extra_time: float = 0.0) -> Array[Logi
 
 
 func begin_display_frame() -> void:
+	_topology.begin_candidate_frame()
 	_sample_return_rows = 0
 	_sample_return_ores = 0
 	_sample_work = 0
