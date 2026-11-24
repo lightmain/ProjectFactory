@@ -127,5 +127,7 @@ Git 与发布状态按开发说明查询。
   首版独立运输包接入、真实坡道长度、Godot 批量接口、设施表面标记和百万压力测量；
   当前规则与后续边界见规格，实测证据见
   [接入验收](docs/reviews/2026-11-23-rust-conveyor-host.md)。
+- [保存不再重建工厂](docs/features/prealpha-2/003-save-without-reconstruction.md)：
+  保存与加载的校验边界调整；实施状态与验收见规格。
 
 历史审查与验证证据保存在 `docs/reviews/`，其中结果仅对应各次记录的验证范围。

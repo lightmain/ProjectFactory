@@ -213,8 +213,9 @@ func has_save() -> bool:
 
 func save_game(state: Dictionary) -> bool:
 	last_error = ""
-	if _decode_snapshot(state) == null:
-		return _fail("Invalid game state.")
+	# Saving trusts the game's logical snapshot; reconstruction belongs to loading.
+	if not _valid_write_chunks(state):
+		return _fail("Invalid save chunk data.")
 	if not SaveGameFiles.make_directory(directory):
 		return _fail("Cannot create save directory.")
 	var active: String = _active_bank()
@@ -245,7 +246,7 @@ func save_game(state: Dictionary) -> bool:
 	if not _write_blob(path.path_join("session.bin"), encoded):
 		return false
 	encoded = PackedByteArray()
-	if _read_bank_result(bank).is_empty():
+	if not _verify_bank_files(path, keys):
 		return _fail("Save verification failed: " + last_error)
 	var temporary: String = directory.path_join("current.tmp")
 	var pointer: FileAccess = FileAccess.open(temporary, FileAccess.WRITE)
@@ -257,6 +258,38 @@ func save_game(state: Dictionary) -> bool:
 	pointer.close()
 	if error != OK or DirAccess.rename_absolute(temporary, directory.path_join("current")) != OK:
 		return _fail("Cannot commit save pointer.")
+	return true
+
+
+static func _valid_write_chunks(state: Dictionary) -> bool:
+	if not state.get("chunks") is Dictionary:
+		return false
+	var chunks: Dictionary = state["chunks"]
+	if chunks.size() > VoxelWorldData.MAX_CHUNKS:
+		return false
+	for key: Variant in chunks:
+		if not key is Vector3i or not chunks[key] is PackedByteArray:
+			return false
+		var chunk: Vector3i = key
+		if chunk.x < 0 or chunk.x > 3 or chunk.y < 0 or chunk.y > 3 or chunk.z < 0 or chunk.z > 3:
+			return false
+		var records: PackedByteArray = chunks[key]
+		if records.is_empty() or records.size() % 3 != 0 or records.size() > VoxelWorldData.CHUNK_VOLUME * 3:
+			return false
+	return true
+
+
+func _verify_bank_files(path: String, chunks: Array[Vector3i]) -> bool:
+	# Verify disk bytes without decoding a session or retaining a second factory.
+	var bytes: PackedByteArray = _read_blob(path.path_join("session.bin"), SESSION_LIMIT)
+	if bytes.is_empty():
+		return false
+	bytes = PackedByteArray()
+	for chunk: Vector3i in chunks:
+		bytes = _read_blob(path.path_join(_chunk_name(chunk)), VoxelWorldData.CHUNK_VOLUME * 3)
+		if bytes.is_empty():
+			return false
+		bytes = PackedByteArray()
 	return true
 
 

@@ -59,6 +59,9 @@
 已结算拓扑必须包含所有合法连接，矿机相位须与结算时刻一致，
 矿石队列须满足运行求解器的间距约束，并在整张已结算图上验证零时间位置可行性，
 避免闭环误差累积。快照不序列化节点或 Resource 对象。
+**上述完整快照规则校验用于加载；保存校验边界已由
+[prealpha-2／003](../prealpha-2/003-save-without-reconstruction.md#保存与加载边界)
+替代，保存不再恢复临时工厂。**
 
 `SaveGameStore` 负责文件 I/O。`current` 仅包含 `a` 或 `b`；
 各代次含 `session.bin` 与实际修改的 `chunk_x_y_z.bin`。

@@ -12,9 +12,11 @@ func test_phase_observer_keeps_disk_validation_and_balances_failed_reads() -> vo
 	store.directory = OS.get_cache_dir().path_join("factory_phase_test_%d" % Time.get_ticks_usec())
 	var state: Dictionary = PressureSaveBuilder.state_for(PressureSaveBuilder.new().build(8, 6))
 	assert_bool(store.save_game(state)).is_true()
-	assert_int(events.count("+snapshot_decode")).is_equal(2)
-	assert_int(events.count("+world_restore")).is_equal(2)
-	assert_int(events.count("+logistics_restore")).is_equal(2)
+	assert_int(store.snapshot_decodes).is_equal(0)
+	assert_int(events.count("+snapshot_decode")).is_equal(0)
+	assert_int(events.count("+world_restore")).is_equal(0)
+	assert_int(events.count("+default_logistics_bind")).is_equal(0)
+	assert_int(events.count("+logistics_restore")).is_equal(0)
 	assert_int(events.count("+compress")).is_greater(0)
 	assert_int(events.count("+disk_read")).is_greater(0)
 	_assert_balanced_phases(events)
@@ -33,6 +35,126 @@ func test_phase_observer_keeps_disk_validation_and_balances_failed_reads() -> vo
 	assert_int(events.count("+snapshot_decode")).is_equal(0)
 	_assert_balanced_phases(events)
 	_cleanup(store.directory)
+
+
+func test_named_save_kinds_and_overwrite_do_not_reconstruct_factory() -> void:
+	var store: SaveGameStore = SaveGameStore.new()
+	store.directory = OS.get_cache_dir().path_join("factory_named_no_restore_%d" % Time.get_ticks_usec())
+	var state: Dictionary = PressureSaveBuilder.state_for(PressureSaveBuilder.new().build(8, 6))
+	for kind: String in ["manual", "auto", "exit"]:
+		assert_bool(store.save_named(state, kind, false, kind)).is_true()
+	assert_bool(store.save_named(state, "manual", true)).is_true()
+	assert_int(store.snapshot_decodes).is_equal(0)
+	var records: Array[Dictionary] = store.list_saves()
+	assert_int(records.size()).is_equal(3)
+	for record: Dictionary in records:
+		var loaded: SessionSnapshot = store.load_named_snapshot(record["id"])
+		assert_object(loaded).is_not_null()
+		if loaded != null:
+			assert_bool(PressureSaveBuilder.state_for(loaded) == state).is_true()
+	assert_int(store.snapshot_decodes).is_equal(3)
+	SaveGameFiles.remove_directory(store.directory)
+
+
+func test_save_defers_logistics_semantic_validation_until_load() -> void:
+	var store: SaveGameStore = SaveGameStore.new()
+	store.directory = OS.get_cache_dir().path_join("factory_deferred_validation_%d" % Time.get_ticks_usec())
+	var state: Dictionary = PressureSaveBuilder.state_for(PressureSaveBuilder.new().build(8, 6))
+	var logistics: Dictionary = state["logistics"]
+	logistics["tick"] = -1
+	assert_bool(store.save_game(state)).is_true()
+	assert_int(store.snapshot_decodes).is_equal(0)
+	assert_object(store.load_snapshot()).is_null()
+	assert_int(store.snapshot_decodes).is_equal(1)
+	assert_bool(store.last_error.is_empty()).is_false()
+	_cleanup(store.directory)
+
+
+func test_readback_corruption_prevents_committing_new_generation() -> void:
+	var store: SaveGameStore = SaveGameStore.new()
+	store.directory = OS.get_cache_dir().path_join("factory_readback_failure_%d" % Time.get_ticks_usec())
+	var state: Dictionary = PressureSaveBuilder.state_for(PressureSaveBuilder.new().build(8, 6))
+	assert_bool(store.save_game(state)).is_true()
+	var reads: Array[int] = [0]
+	store.phase_observer = func(phase: String, entering: bool) -> void:
+		if phase == "disk_read" and entering:
+			reads[0] += 1
+			if reads[0] == 1:
+				var corrupt: FileAccess = FileAccess.open(
+					store.directory.path_join("b/session.bin"), FileAccess.WRITE)
+				corrupt.store_buffer(PackedByteArray([1, 2, 3]))
+				corrupt.close()
+	assert_bool(store.save_game(state)).is_false()
+	assert_int(reads[0]).is_greater(0)
+	assert_int(store.snapshot_decodes).is_equal(0)
+	store.phase_observer = Callable()
+	var loaded: SessionSnapshot = store.load_snapshot()
+	assert_object(loaded).is_not_null()
+	if loaded != null:
+		assert_bool(PressureSaveBuilder.state_for(loaded) == state).is_true()
+	_cleanup(store.directory)
+
+
+func test_invalid_write_chunks_leave_previous_generation_loadable() -> void:
+	var store: SaveGameStore = SaveGameStore.new()
+	store.directory = OS.get_cache_dir().path_join("factory_invalid_write_chunks_%d" % Time.get_ticks_usec())
+	var state: Dictionary = PressureSaveBuilder.state_for(PressureSaveBuilder.new().build(8, 6))
+	assert_bool(store.save_game(state)).is_true()
+	for chunks: Variant in [
+		null, [], {"../outside": PackedByteArray([0, 0, 1])},
+		{Vector3i(-1, 0, 0): PackedByteArray([0, 0, 1])},
+		{Vector3i(4, 0, 0): PackedByteArray([0, 0, 1])},
+		{Vector3i.ZERO: []}, {Vector3i.ZERO: PackedByteArray()},
+		{Vector3i.ZERO: PackedByteArray([0, 0])},
+	]:
+		var invalid: Dictionary = state.duplicate(true)
+		invalid["chunks"] = chunks
+		assert_bool(store.save_game(invalid)).is_false()
+	assert_int(store.snapshot_decodes).is_equal(0)
+	var loaded: SessionSnapshot = store.load_snapshot()
+	assert_object(loaded).is_not_null()
+	if loaded != null:
+		assert_bool(PressureSaveBuilder.state_for(loaded) == state).is_true()
+	_cleanup(store.directory)
+
+
+func test_readback_checksum_and_missing_chunk_preserve_previous_generation() -> void:
+	for damage: String in ["session_checksum", "chunk_checksum", "missing_chunk"]:
+		var store: SaveGameStore = SaveGameStore.new()
+		store.directory = OS.get_cache_dir().path_join(
+			"factory_readback_%s_%d" % [damage, Time.get_ticks_usec()])
+		var state: Dictionary = PressureSaveBuilder.state_for(PressureSaveBuilder.new().build(8, 6))
+		assert_bool(store.save_game(state)).is_true()
+		var chunks: Dictionary = state["chunks"]
+		var keys: Array = chunks.keys()
+		assert_bool(keys.is_empty()).is_false()
+		var chunk: Vector3i = keys[0]
+		var filename: String = "session.bin" if damage == "session_checksum" else (
+			"chunk_%d_%d_%d.bin" % [chunk.x, chunk.y, chunk.z])
+		var target: String = store.directory.path_join("b").path_join(filename)
+		var reads: Array[int] = [0]
+		store.phase_observer = func(phase: String, entering: bool) -> void:
+			if phase == "disk_read" and entering:
+				reads[0] += 1
+				if reads[0] == 1:
+					if damage == "missing_chunk":
+						assert_int(DirAccess.remove_absolute(target)).is_equal(OK)
+					else:
+						var file: FileAccess = FileAccess.open(target, FileAccess.READ_WRITE)
+						file.seek(8)
+						var checksum_byte: int = file.get_8()
+						file.seek(8)
+						file.store_8(checksum_byte ^ 1)
+						file.close()
+		assert_bool(store.save_game(state)).is_false()
+		assert_int(store.snapshot_decodes).is_equal(0)
+		assert_bool(store.last_error.is_empty()).is_false()
+		store.phase_observer = Callable()
+		var loaded: SessionSnapshot = store.load_snapshot()
+		assert_object(loaded).is_not_null()
+		if loaded != null:
+			assert_bool(PressureSaveBuilder.state_for(loaded) == state).is_true()
+		_cleanup(store.directory)
 
 
 func _assert_balanced_phases(events: Array[String]) -> void:
