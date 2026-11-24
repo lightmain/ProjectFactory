@@ -7,6 +7,7 @@ const HEADER_SIZE: int = 40
 const MAGIC: int = 0x31534650
 
 var last_error: String = ""
+var phase_observer: Callable = Callable()
 
 
 func read_catalog(directory: String) -> Dictionary:
@@ -97,39 +98,63 @@ func write_blob(path: String, bytes: PackedByteArray) -> bool:
 	last_error = ""
 	if bytes.size() > SESSION_LIMIT:
 		return _fail("Save exceeds file size limit.")
+	_phase("checksum", true)
+	var checksum: PackedByteArray = digest(bytes)
+	_phase("checksum", false)
+	_phase("compress", true)
+	var compressed: PackedByteArray = bytes.compress(FileAccess.COMPRESSION_DEFLATE)
+	_phase("compress", false)
+	_phase("disk_write", true)
 	var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
+		_phase("disk_write", false)
 		return _fail("Cannot write save file.")
 	file.store_32(MAGIC)
 	file.store_32(bytes.size())
-	file.store_buffer(digest(bytes))
-	file.store_buffer(bytes.compress(FileAccess.COMPRESSION_DEFLATE))
+	file.store_buffer(checksum)
+	file.store_buffer(compressed)
 	file.flush()
 	var error: Error = file.get_error()
 	file.close()
+	_phase("disk_write", false)
 	return true if error == OK else _fail("Save file write failed.")
 
 
 func read_blob(path: String, limit: int) -> PackedByteArray:
 	last_error = ""
+	_phase("disk_read", true)
 	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
 	if file == null or file.get_length() <= HEADER_SIZE or file.get_length() > limit + 1024:
+		_phase("disk_read", false)
 		_fail("Missing or oversized save file.")
 		return PackedByteArray()
 	if file.get_32() != MAGIC:
+		_phase("disk_read", false)
 		_fail("Unknown save file format.")
 		return PackedByteArray()
 	var length: int = file.get_32()
 	var checksum: PackedByteArray = file.get_buffer(32)
 	if length <= 0 or length > limit:
+		_phase("disk_read", false)
 		_fail("Invalid uncompressed length.")
 		return PackedByteArray()
 	var compressed: PackedByteArray = file.get_buffer(file.get_length() - HEADER_SIZE)
+	_phase("disk_read", false)
+	_phase("decompress", true)
 	var bytes: PackedByteArray = compressed.decompress(length, FileAccess.COMPRESSION_DEFLATE)
-	if bytes.size() != length or digest(bytes) != checksum:
+	_phase("decompress", false)
+	_phase("checksum", true)
+	var valid: bool = bytes.size() == length and digest(bytes) == checksum
+	_phase("checksum", false)
+	if not valid:
 		_fail("Save checksum failed.")
 		return PackedByteArray()
 	return bytes
+
+
+func _phase(name: String, entering: bool) -> void:
+	if phase_observer.is_valid():
+		phase_observer.call(name, entering)
 
 
 static func digest(bytes: PackedByteArray) -> PackedByteArray:

@@ -65,6 +65,70 @@ func _running_line() -> int:
 	return ores[0].id if not ores.is_empty() else -1
 
 
+func test_boundary_deltas_preserve_live_ores_inventory_and_height_during_camera_movement() -> void:
+	_assert_mixed_boundary_movement(false)
+
+
+func test_rust_boundary_deltas_preserve_live_ores_inventory_and_height_during_camera_movement() -> void:
+	if ClassDB.class_exists("RustConveyorNetwork"):
+		_assert_mixed_boundary_movement(true)
+
+
+func _assert_mixed_boundary_movement(native: bool) -> void:
+	for x: int in range(-6, 7):
+		for z: int in range(-6, 7):
+			var inventory: bool = z == 0 and (absi(x) == 4 or x == 0)
+			_place(Vector3i(x, 0, z), VoxelWorldData.Block.CHEST if inventory else VoxelWorldData.Block.BELT)
+	assert_bool(_data.prefill_belts()).is_true()
+	if native:
+		assert_bool(_data.enable_rust_transport()).is_true()
+	_view.render_distance = 2.0
+	_view.ore_render_max_height_above_camera = 0.0
+	var origin: Vector3 = _camera.global_position
+	for offset: Vector3 in [Vector3.ZERO, Vector3(0.1, 0.0, 0.0),
+		Vector3(0.2, -0.15, 0.0), Vector3(-0.1, -0.13, 0.0),
+		Vector3(-0.2, 0.0, 0.0), Vector3(0.1, 0.0, 0.0)]:
+		_data.advance(LogisticsData.LOGIC_STEP)
+		for cell: Vector3i in [Vector3i(-4, 0, 0), Vector3i.ZERO, Vector3i(4, 0, 0)]:
+			var index: int = _data._topology.index_at(cell)
+			var machine: LogisticsMachine = _data._topology.machines[index]
+			machine.quantity = (machine.quantity + 1) % 3
+			machine.eligible_quantity = machine.quantity
+		_camera.global_position = origin + offset
+		_view.refresh_from_data()
+		var reference: LogisticsData = LogisticsData.new()
+		reference.bind_world(_world)
+		assert_bool(reference.restore_state(_data.save_state())).is_true()
+		var expected_ids: Array[int] = []
+		var expected_rows: int = 0
+		var maximum_y: float = _camera.global_position.y
+		for row: LogisticsOreQueue in reference.sample_belts():
+			var nearby: bool = _camera.global_position.distance_squared_to(VoxelWorldData.cell_center(row.cell)) <= 4.0
+			if not nearby:
+				assert_bool(_view.has_node("Machine_%d_%d_%d" % [row.cell.x, row.cell.y, row.cell.z])).is_false()
+				continue
+			if not VoxelWorldData.is_belt(row.block):
+				var node: Node3D = _view.get_node("Machine_%d_%d_%d" % [row.cell.x, row.cell.y, row.cell.z]) as Node3D
+				var first: MeshInstance3D = node.get_node("Ore1") as MeshInstance3D
+				var second: MeshInstance3D = node.get_node("Ore2") as MeshInstance3D
+				assert_bool(first.visible == (reference.ore_count(row.cell) > 0)).is_true()
+				assert_bool(second.visible == (reference.ore_count(row.cell) > 1)).is_true()
+				continue
+			if (
+				Vector3(0.0, float(row.cell.y) * VoxelWorldData.CELL_SIZE + VoxelWorldData.BELT_HEIGHT, 0.0)
+				+ Vector3.UP * LogisticsView.ORE_SURFACE_OFFSET
+			).y <= maximum_y:
+				expected_rows += 1
+			for ore: LogisticsOre in row.ores:
+				var expected: Vector3 = ore.surface_position(row.cell, row.direction, row.block) + Vector3.UP * LogisticsView.ORE_SURFACE_OFFSET
+				if expected.y <= maximum_y:
+					expected_ids.append(ore.id)
+					assert_bool(_view.item_render_pool.has_item(ore.id)).is_true()
+					assert_vector(_view.item_render_pool.item_transform(ore.id).origin).is_equal_approx(expected, Vector3.ONE * 0.000001)
+		assert_int(_view.stage_stats()["display_requested_rows"]).is_equal(expected_rows)
+		assert_int(_view.item_render_pool.stats()["visible_items"]).is_equal(expected_ids.size())
+
+
 func test_stationary_and_rotating_camera_reuse_selection_and_metadata() -> void:
 	var id: int = _running_line()
 	_view.refresh_from_data()

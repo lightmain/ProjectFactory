@@ -78,6 +78,120 @@ func build(size: int = 128, height: int = 64, backend: String = "gdscript") -> S
 	return snapshot
 
 
+func build_complex(backend: String = "gdscript") -> SessionSnapshot:
+	## Fixed deterministic workload: two merges, three loop loads and a chest chain.
+	last_error = ""
+	var snapshot: SessionSnapshot = SessionSnapshot.new()
+	snapshot.world.generate_flat(Vector3i(-16, -1, -16), Vector3i(16, 15, 16), 1)
+	var directions: Dictionary[Vector3i, Vector3i] = {}
+	for x: int in range(-8, 8):
+		_complex_place(snapshot, directions, Vector3i(x, 0, -4), VoxelWorldData.Block.BELT, Vector3i.RIGHT)
+	_complex_place(snapshot, directions, Vector3i(8, 0, -4), VoxelWorldData.Block.CHEST, Vector3i.RIGHT)
+	_complex_place(snapshot, directions, Vector3i(-9, 0, -4), VoxelWorldData.Block.MINER, Vector3i.RIGHT)
+	for x: int in [-4, 3]:
+		for z: int in range(-3, 0):
+			_complex_place(snapshot, directions, Vector3i(x, 0, z), VoxelWorldData.Block.BELT, Vector3i.FORWARD)
+		_complex_place(snapshot, directions, Vector3i(x, 0, 0), VoxelWorldData.Block.MINER, Vector3i.FORWARD)
+	for x: int in range(-8, -5):
+		_complex_place(snapshot, directions, Vector3i(x, 0, 4), VoxelWorldData.Block.CHEST, Vector3i.RIGHT)
+	for anchor: Vector3i in [Vector3i(-3, 0, 4), Vector3i(3, 0, 4), Vector3i(8, 0, 4)]:
+		var ring: Array[Vector3i] = [anchor, anchor + Vector3i.RIGHT,
+			anchor + Vector3i.RIGHT + Vector3i.BACK, anchor + Vector3i.BACK]
+		for index: int in range(ring.size()):
+			_complex_place(snapshot, directions, ring[index], VoxelWorldData.Block.BELT,
+				ring[(index + 1) % ring.size()] - ring[index])
+	if not last_error.is_empty() or backend not in ["gdscript", "rust"]:
+		return null
+	snapshot.logistics.bind_world(snapshot.world, 0.17, 2)
+	for cell: Vector3i in directions:
+		snapshot.logistics.set_direction(cell, directions[cell])
+	if not snapshot.logistics.prefill_belts():
+		return null
+	var state: Dictionary = snapshot.logistics.save_state()
+	var rows: Array = state["machines"]
+	for row: Dictionary in rows:
+		var cell: Vector3i = row["cell"]
+		if cell.z >= 4 and cell.x in [-3, -2, 3, 4]:
+			var ores: Array = row["ores"]
+			ores.clear()
+			if cell == Vector3i(3, 0, 4):
+				ores.append({"id": state["next_id"], "incoming": Vector3i.FORWARD, "progress": 0.1})
+				state["next_id"] += 1
+			row["quantity"] = ores.size()
+			row["eligible"] = ores.size()
+		if cell == Vector3i(-8, 0, 4):
+			row["quantity"] = 7
+			row["eligible"] = 7
+	if not snapshot.logistics.restore_state(state) or (
+		backend == "rust" and not snapshot.logistics.enable_rust_transport()
+	):
+		last_error = snapshot.logistics.transport_error()
+		return null
+	snapshot.position = Vector3(-6, 0.01, -5)
+	snapshot.spawn = snapshot.position
+	snapshot.view_rotation = Vector3(-0.25, -PI * 0.5, 0)
+	snapshot.selected_block = VoxelWorldData.Block.BELT
+	snapshot.world_id = "complex_factory_v1".md5_text()
+	snapshot.world_name = "综合工厂 v1"
+	return snapshot
+
+
+func _complex_place(snapshot: SessionSnapshot, directions: Dictionary[Vector3i, Vector3i],
+		cell: Vector3i, block: int, direction: Vector3i) -> void:
+	if not snapshot.world.place_block(cell, block):
+		last_error = "综合工厂无法放置：%s" % cell
+	directions[cell] = direction
+
+
+static func complex_certificate(snapshot: SessionSnapshot) -> Dictionary:
+	var state: Dictionary = snapshot.logistics.save_packed_state()
+	if state.is_empty() or state["dirty"]:
+		return {}
+	var bytes: PackedByteArray = state["machines"]
+	var cells: Array[Vector3i] = snapshot.logistics.machine_cells()
+	var inventory_cells: Array[Vector3i] = []
+	var producers: Array[Vector3i] = []
+	var belts: int = 0
+	var incoming_counts: PackedInt32Array = PackedInt32Array()
+	incoming_counts.resize(cells.size())
+	incoming_counts.fill(0)
+	var outgoing: PackedInt32Array = state["outgoing"]
+	for target: int in outgoing:
+		if target >= 0:
+			incoming_counts[target] += 1
+	for index: int in range(cells.size()):
+		var block: int = bytes[index * LogisticsPacked.ROW_SIZE + 12]
+		if VoxelWorldData.is_belt(block):
+			belts += 1
+		else:
+			inventory_cells.append(cells[index])
+			if block == VoxelWorldData.Block.MINER:
+				producers.append(cells[index])
+	var merges: int = 0
+	for incoming: int in incoming_counts:
+		merges += 1 if incoming > 1 else 0
+	var walks: PackedInt32Array = PackedInt32Array()
+	walks.resize(cells.size())
+	walks.fill(0)
+	var loops: int = 0
+	for index: int in range(cells.size()):
+		if walks[index] != 0:
+			continue
+		var cursor: int = index
+		while cursor >= 0 and walks[cursor] == 0:
+			walks[cursor] = index + 1
+			cursor = outgoing[cursor]
+		if cursor >= 0 and walks[cursor] == index + 1:
+			loops += 1
+	if loops != 3 or merges != 2 or belts != 34 or producers.size() != 3 or inventory_cells.size() != 7:
+		return {}
+	return {"fixture": "complex_v1", "seed": 0, "belts": belts,
+		"miners": producers.size(), "chests": inventory_cells.size() - producers.size(),
+		"producer_cells": producers, "inventory_cells": inventory_cells,
+		"sink": Vector3i(8, 0, -4), "loops": loops, "merges": merges,
+		"topology_sha256": SaveGameFiles.digest(var_to_bytes([bytes, state["outgoing"], state["inputs"]])).hex_encode()}
+
+
 static func state_for(snapshot: SessionSnapshot) -> Dictionary:
 	return {
 		"version": SessionSnapshot.FORMAT_VERSION, "generator": SessionSnapshot.GENERATOR_VERSION,

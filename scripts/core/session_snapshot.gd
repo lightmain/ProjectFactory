@@ -18,7 +18,7 @@ var world_id: String = ""
 var world_name: String = "新世界"
 
 
-static func decode(state: Dictionary) -> SessionSnapshot:
+static func decode(state: Dictionary, phase_observer: Callable = Callable()) -> SessionSnapshot:
 	if not SnapshotValues.integer(state.get("version"), 1, FORMAT_VERSION) or (
 		not SnapshotValues.integer(state.get("generator"), GENERATOR_VERSION, GENERATOR_VERSION)
 		or not state.get("minimum") is Vector3i or not state.get("maximum") is Vector3i
@@ -74,10 +74,24 @@ static func decode(state: Dictionary) -> SessionSnapshot:
 			for offset: int in range(2, records.size(), 3):
 				if records[offset] > (VoxelWorldData.Block.CHEST if version == 1 else VoxelWorldData.Block.STRUCTURE):
 					return null
-	if not result.world.restore_chunks(flat, chunks, structures, low, high, depth):
+	if phase_observer.is_valid():
+		phase_observer.call("world_restore", true)
+	var world_valid: bool = result.world.restore_chunks(flat, chunks, structures, low, high, depth)
+	if phase_observer.is_valid():
+		phase_observer.call("world_restore", false)
+	if not world_valid:
 		return null
+	if phase_observer.is_valid():
+		phase_observer.call("default_logistics_bind", true)
 	result.logistics.bind_world(result.world)
-	if not result.logistics.restore_state(logistics_state) or (
+	if phase_observer.is_valid():
+		phase_observer.call("default_logistics_bind", false)
+	if phase_observer.is_valid():
+		phase_observer.call("logistics_restore", true)
+	var logistics_valid: bool = result.logistics.restore_state(logistics_state)
+	if phase_observer.is_valid():
+		phase_observer.call("logistics_restore", false)
+	if not logistics_valid or (
 		not result.inventory.restore_state(inventory_state)
 	):
 		return null

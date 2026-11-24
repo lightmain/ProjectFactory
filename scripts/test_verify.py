@@ -73,7 +73,12 @@ class VerifyRegressionTests(unittest.TestCase):
             directory = self.root / "addons" / plugin
             directory.mkdir(parents=True)
             (directory / "plugin.cfg").write_text(f'version="{version}"\n')
-        for name in ("verify.sh", "check_types.py", "verification_project.py", "check_startup.py"):
+        for name in ("verify.sh", "check_types.py", "verification_project.py", "check_startup.py",
+                     "test_pressure_phases.py", "pressure_phases.py",
+                     "test_native_pressure_report.py", "check_native_pressure_report.py",
+                     "test_pressure_fixture.py", "native_pressure_provenance.py",
+                     "test_native_pressure_summary.py", "summarize_native_pressure.py",
+                     "native_pressure_metrics.py"):
             if (SCRIPTS / name).exists():
                 shutil.copy2(SCRIPTS / name, self.root / "scripts" / name)
         # The fixture exercises orchestration; do not recursively launch this suite.

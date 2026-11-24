@@ -10,6 +10,8 @@ var directory: String = "user://saves/world"
 var last_error: String = ""
 var snapshot_decodes: int = 0
 var loaded_state_sha256: String = ""
+## Optional benchmark observer; receives only stage names and boundaries.
+var phase_observer: Callable = Callable()
 var _files: SaveGameFiles = SaveGameFiles.new()
 
 
@@ -68,6 +70,7 @@ func save_named(state: Dictionary, save_name: String, overwrite: bool = false,
 			break
 	var payload: String = new_id()
 	var writer: SaveGameStore = SaveGameStore.new()
+	writer.phase_observer = phase_observer
 	writer.directory = directory.path_join("snapshots").path_join(payload)
 	var written: bool = writer.save_game(state)
 	snapshot_decodes += writer.snapshot_decodes
@@ -139,6 +142,7 @@ func _load_named_result(save_id: String, fingerprint: bool = false) -> Dictionar
 		if record["id"] != save_id:
 			continue
 		var reader: SaveGameStore = SaveGameStore.new()
+		reader.phase_observer = phase_observer
 		var payload: String = record["payload"]
 		reader.directory = directory.path_join("snapshots").path_join(payload)
 		var result: Dictionary = reader._load_game_result(fingerprint)
@@ -235,8 +239,12 @@ func save_game(state: Dictionary) -> bool:
 		if not _write_blob(path.path_join(_chunk_name(chunk)), records):
 			return false
 	manifest["chunks"] = keys
-	if not _write_blob(path.path_join("session.bin"), var_to_bytes(manifest)):
+	_phase("manifest_encode", true)
+	var encoded: PackedByteArray = var_to_bytes(manifest)
+	_phase("manifest_encode", false)
+	if not _write_blob(path.path_join("session.bin"), encoded):
 		return false
+	encoded = PackedByteArray()
 	if _read_bank_result(bank).is_empty():
 		return _fail("Save verification failed: " + last_error)
 	var temporary: String = directory.path_join("current.tmp")
@@ -287,7 +295,9 @@ func _read_bank_result(bank: String, fingerprint: bool = false) -> Dictionary:
 	var bytes: PackedByteArray = _read_blob(path.path_join("session.bin"), SESSION_LIMIT)
 	if bytes.is_empty():
 		return {}
+	_phase("manifest_decode", true)
 	var value: Variant = bytes_to_var(bytes)
+	_phase("manifest_decode", false)
 	# The manifest is now owned by its Variant containers. Do not keep a
 	# second encoded payload alive while rebuilding the complete factory.
 	bytes = PackedByteArray()
@@ -331,7 +341,15 @@ func _read_bank_result(bank: String, fingerprint: bool = false) -> Dictionary:
 
 func _decode_snapshot(state: Dictionary) -> SessionSnapshot:
 	snapshot_decodes += 1
-	return SessionSnapshot.decode(state)
+	_phase("snapshot_decode", true)
+	var snapshot: SessionSnapshot = SessionSnapshot.decode(state, phase_observer)
+	_phase("snapshot_decode", false)
+	return snapshot
+
+
+func _phase(name: String, entering: bool) -> void:
+	if phase_observer.is_valid():
+		phase_observer.call(name, entering)
 
 
 static func _state_fingerprint(state: Dictionary) -> String:
@@ -341,12 +359,14 @@ static func _state_fingerprint(state: Dictionary) -> String:
 
 
 func _write_blob(path: String, bytes: PackedByteArray) -> bool:
+	_files.phase_observer = phase_observer
 	if not _files.write_blob(path, bytes):
 		return _fail(_files.last_error)
 	return true
 
 
 func _read_blob(path: String, limit: int) -> PackedByteArray:
+	_files.phase_observer = phase_observer
 	var bytes: PackedByteArray = _files.read_blob(path, limit)
 	if bytes.is_empty():
 		_fail(_files.last_error)

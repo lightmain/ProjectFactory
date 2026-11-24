@@ -634,6 +634,7 @@ func stats() -> Dictionary[String, int]:
 		"rust_display_bind_usec": _display_bind_usec, "rust_display_bind_count": _display_bind_count,
 		"rust_display_queries": _display_queries, "rust_display_query_ns": _display_query_ns,
 		"rust_display_xyz_ns": _display_xyz_ns,
+		"rust_incoming_entries": _incoming.size(),
 		"rust_map_usec": map_usec, "rust_core_ns": core_ns}
 
 

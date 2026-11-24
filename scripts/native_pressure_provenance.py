@@ -10,14 +10,45 @@ import subprocess
 import sys
 
 
-def source(root, roots):
+def fixture_files(save):
+    save = pathlib.Path(save)
+    bank = save / (save / "current").read_text()
+    files = {}
+    for path in sorted(bank.glob("*.bin")) + [save / "current", save.parent / "route.bin"]:
+        with path.open("rb") as stream:
+            digest = hashlib.sha256()
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        name = path.name if path == save.parent / "route.bin" else str(path.relative_to(save))
+        files[name] = {"bytes": path.stat().st_size, "sha256": digest.hexdigest()}
+    if not any(name.endswith(".bin") and "/" in name for name in files):
+        raise ValueError("Fixture has no bank files")
+    return files
+
+
+def bind_fixture(save):
+    save = pathlib.Path(save)
+    (save.parent / "fixture_manifest.json").write_text(json.dumps(
+        {"version": 1, "files": fixture_files(save)}, indent=2) + "\n")
+
+
+def verify_fixture(save):
+    save = pathlib.Path(save)
+    manifest = json.loads((save.parent / "fixture_manifest.json").read_text())
+    files = fixture_files(save)
+    if manifest.get("version") != 1 or manifest.get("files") != files:
+        raise ValueError("Factory certificate does not match the selected disk bank")
+    return files
+
+
+def source(root, roots, input_root=None):
     def git(*args):
         return subprocess.check_output(["git", *args], cwd=root)
     digest = hashlib.sha256()
     for raw in sorted(set(git("ls-files", "-z", "--cached", "--others", "--exclude-standard").split(b"\0"))):
         if not raw or raw.decode().split("/")[0] not in roots:
             continue
-        path = root / raw.decode()
+        path = (input_root or root) / raw.decode()
         if path.is_file():
             digest.update(raw + b"\0" + hashlib.sha256(path.read_bytes()).digest())
     return {"head": git("rev-parse", "HEAD").decode().strip(),
@@ -28,11 +59,21 @@ def source(root, roots):
 def main():
     root = pathlib.Path(__file__).resolve().parent.parent
     output = pathlib.Path(sys.argv[1])
-    addon = root / "addons/rust_conveyor"
+    execution_root = pathlib.Path(os.environ.get("BENCHMARK_PROJECT", root))
+    addon = execution_root / "addons/rust_conveyor"
     build_path = addon / "build.json"
     manifest = {"project_factory": source(root, {"project.godot", "config", "scenes", "scripts", "assets", "addons"}),
                 "native_build": "unavailable", "rust_conveyor_current_source": "unavailable",
                 "invocations": json.loads(sys.argv[2])}
+    manifest["execution_project"] = source(root, {"project.godot", "config", "scenes", "scripts", "assets", "addons"}, execution_root)
+    if manifest["execution_project"]["inputs_sha256"] != manifest["project_factory"]["inputs_sha256"]:
+        raise SystemExit("Benchmark project inputs differ from the recorded source")
+    for environment_name, manifest_name in [("LOAD_SAVE", "input_save"),
+                                            ("ALTERNATE_SAVE", "alternate_save")]:
+        load_save = os.environ.get(environment_name)
+        if not load_save:
+            continue
+        manifest[manifest_name] = verify_fixture(load_save)
     if build_path.is_file():
         build = json.loads(build_path.read_text())
         host_system = platform.system()

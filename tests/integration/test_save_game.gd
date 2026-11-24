@@ -1,6 +1,52 @@
 extends GdUnitTestSuite
 
 
+func test_phase_observer_keeps_disk_validation_and_balances_failed_reads() -> void:
+	var store: SaveGameStore = SaveGameStore.new()
+	assert_bool("phase_observer" in store).is_true()
+	if not "phase_observer" in store:
+		return
+	var events: Array[String] = []
+	store.set("phase_observer", func(phase: String, entering: bool) -> void:
+		events.append(("+" if entering else "-") + phase))
+	store.directory = OS.get_cache_dir().path_join("factory_phase_test_%d" % Time.get_ticks_usec())
+	var state: Dictionary = PressureSaveBuilder.state_for(PressureSaveBuilder.new().build(8, 6))
+	assert_bool(store.save_game(state)).is_true()
+	assert_int(events.count("+snapshot_decode")).is_equal(2)
+	assert_int(events.count("+world_restore")).is_equal(2)
+	assert_int(events.count("+logistics_restore")).is_equal(2)
+	assert_int(events.count("+compress")).is_greater(0)
+	assert_int(events.count("+disk_read")).is_greater(0)
+	_assert_balanced_phases(events)
+	events.clear()
+	var loaded: SessionSnapshot = store.load_snapshot()
+	assert_object(loaded).is_not_null()
+	assert_bool(PressureSaveBuilder.state_for(loaded) == state).is_true()
+	assert_int(events.count("+snapshot_decode")).is_equal(1)
+	_assert_balanced_phases(events)
+	events.clear()
+	var corrupt: FileAccess = FileAccess.open(store.directory.path_join("a/session.bin"), FileAccess.WRITE)
+	corrupt.store_buffer(PackedByteArray([1, 2, 3]))
+	corrupt.close()
+	assert_object(store.load_snapshot()).is_null()
+	assert_int(events.count("+disk_read")).is_equal(1)
+	assert_int(events.count("+snapshot_decode")).is_equal(0)
+	_assert_balanced_phases(events)
+	_cleanup(store.directory)
+
+
+func _assert_balanced_phases(events: Array[String]) -> void:
+	var stack: Array[String] = []
+	for event: String in events:
+		if event.begins_with("+"):
+			stack.append(event.substr(1))
+		else:
+			assert_bool(stack.is_empty()).is_false()
+			if not stack.is_empty():
+				assert_str(stack.pop_back()).is_equal(event.substr(1))
+	assert_array(stack).is_empty()
+
+
 func test_multiblock_file_roundtrip_retains_identity_rotation_and_whole_removal() -> void:
 	var game: FactoryGame = auto_free(load("res://scenes/main.tscn").instantiate()) as FactoryGame
 	add_child(game)

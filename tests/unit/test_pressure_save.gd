@@ -1,6 +1,41 @@
 extends GdUnitTestSuite
 
 
+func test_complex_fixture_has_distinct_loop_loads_and_replayable_inventory() -> void:
+	var builder: PressureSaveBuilder = PressureSaveBuilder.new()
+	assert_bool(builder.has_method("build_complex")).is_true()
+	if not builder.has_method("build_complex"):
+		return
+	for backend: String in ["gdscript", "rust"] if ClassDB.class_exists("RustConveyorNetwork") else ["gdscript"]:
+		var snapshot: SessionSnapshot = builder.call("build_complex", backend)
+		assert_object(snapshot).is_not_null()
+		if snapshot == null:
+			continue
+		var packed: Dictionary = PressureSaveBuilder.state_for(snapshot)
+		var copy: SessionSnapshot = SessionSnapshot.decode(packed)
+		assert_object(copy).is_not_null()
+		assert_int(snapshot.logistics.ore_count(Vector3i(-3, 0, 4))).is_equal(0)
+		assert_int(snapshot.logistics.ore_count(Vector3i(3, 0, 4))).is_equal(1)
+		var ring_total: int = 0
+		for cell: Vector3i in [Vector3i(8, 0, 4), Vector3i(9, 0, 4),
+			Vector3i(9, 0, 5), Vector3i(8, 0, 5)]:
+			ring_total += snapshot.logistics.ore_count(cell)
+		assert_int(ring_total).is_equal(8)
+		assert_int(snapshot.logistics.ore_count(Vector3i(-8, 0, 4))).is_equal(7)
+		var initial_total: int = snapshot.logistics.total_ore()
+		for tick: int in range(120):
+			snapshot.logistics.advance(LogisticsData.LOGIC_STEP)
+			copy.logistics.advance(LogisticsData.LOGIC_STEP)
+		assert_str(snapshot.logistics.transport_error()).is_empty()
+		assert_bool(snapshot.logistics.save_packed_state() == copy.logistics.save_packed_state()).is_true()
+		assert_int(snapshot.logistics.total_ore()).is_greater(initial_total)
+		assert_bool(PressureSaveBuilder.complex_certificate(snapshot).is_empty()).is_false()
+		# Rotate the belt entering the main line itself; rotating farther up
+		# the branch leaves the geometric merge intact even when unfed.
+		assert_bool(snapshot.logistics.set_direction(Vector3i(-4, 0, -3), Vector3i.RIGHT)).is_true()
+		assert_bool(PressureSaveBuilder.complex_certificate(snapshot).is_empty()).is_true()
+
+
 func test_large_single_floor_snapshot_and_far_facility_roundtrip() -> void:
 	var world: VoxelWorldData = VoxelWorldData.new()
 	world.generate_flat()

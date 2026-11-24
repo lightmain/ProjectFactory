@@ -8,6 +8,10 @@ DISPLAY_MODE="${3:-headless}"
 SELECTED_CASE="${4:-all}"
 CAMERA_TRACK="${5:-fixed}"
 GODOT_BIN="${GODOT_BIN:-godot}"
+BENCHMARK_PROJECT="${BENCHMARK_PROJECT:-$PROJECT_ROOT}"
+LOAD_SAVE="${LOAD_SAVE:-}"
+SWITCH_COUNT="${SWITCH_COUNT:-0}"
+ALTERNATE_SAVE="${ALTERNATE_SAVE:-}"
 [[ "$BACKEND" == rust || "$BACKEND" == gdscript ]]
 [[ "$DISPLAY_MODE" == headless || "$DISPLAY_MODE" == window ]]
 [[ "$CAMERA_TRACK" == fixed || "$CAMERA_TRACK" == small_translation ]]
@@ -28,11 +32,12 @@ if [[ "$SELECTED_CASE" != all ]]; then
     10k) CASES=(10k:32:12) ;;
     100k) CASES=(100k:64:27) ;;
     million) CASES=(million:128:64) ;;
+    complex) CASES=(complex:0:0) ;;
     *) echo "Unknown case: $SELECTED_CASE" >&2; exit 2 ;;
   esac
 fi
-INVOCATIONS="$(python3 -c 'import json,sys; engine,root,out,backend,display,track,*cases=sys.argv[1:]; print(json.dumps([[engine]+(["--headless"] if display=="headless" else [])+["--path",root,"-s","res://scripts/pressure_native_benchmark.gd","--",*case.split(":")[1:],out+"/"+case.split(":")[0],"300","120",backend,out+"/provenance.json",track] for case in cases]))' \
-  "$GODOT_BIN" "$PROJECT_ROOT" "$OUTPUT" "$BACKEND" "$DISPLAY_MODE" "$CAMERA_TRACK" "${CASES[@]}")"
+INVOCATIONS="$(python3 -c 'import json,sys; engine,root,out,backend,display,track,save,switches,alternate,*cases=sys.argv[1:]; print(json.dumps([[engine]+(["--headless"] if display=="headless" else [])+["--path",root,"-s","res://scripts/pressure_native_benchmark.gd","--",*case.split(":")[1:],out+"/"+case.split(":")[0],"300","120",backend,out+"/provenance.json",track,save,switches,alternate] for case in cases]))' \
+  "$GODOT_BIN" "$BENCHMARK_PROJECT" "$OUTPUT" "$BACKEND" "$DISPLAY_MODE" "$CAMERA_TRACK" "$LOAD_SAVE" "$SWITCH_COUNT" "$ALTERNATE_SAVE" "${CASES[@]}")"
 python3 "$PROJECT_ROOT/scripts/native_pressure_provenance.py" "$OUTPUT/provenance.json" "$INVOCATIONS"
 
 # Each process finishes before the next starts; never benchmark concurrently.
@@ -41,9 +46,10 @@ for CASE in "${CASES[@]}"; do
   LOG="$OUTPUT/$LABEL.log"
   echo "Measuring $LABEL ($BACKEND, $DISPLAY_MODE)"
   # macOS Bash 3.2 treats an empty array as unset with nounset enabled.
-  /usr/bin/time "${TIME_ARGS[@]}" "$GODOT_BIN" ${DISPLAY_ARGS[@]+"${DISPLAY_ARGS[@]}"} \
-    --path "$PROJECT_ROOT" -s res://scripts/pressure_native_benchmark.gd \
-    -- "$SIZE" "$HEIGHT" "$OUTPUT/$LABEL" 300 120 "$BACKEND" "$OUTPUT/provenance.json" "$CAMERA_TRACK" > "$LOG" 2>&1
+  /usr/bin/time "${TIME_ARGS[@]}" python3 -B "$PROJECT_ROOT/scripts/pressure_phases.py" \
+    "$OUTPUT/$LABEL/phases.json" -- "$GODOT_BIN" ${DISPLAY_ARGS[@]+"${DISPLAY_ARGS[@]}"} \
+    --path "$BENCHMARK_PROJECT" -s res://scripts/pressure_native_benchmark.gd \
+    -- "$SIZE" "$HEIGHT" "$OUTPUT/$LABEL" 300 120 "$BACKEND" "$OUTPUT/provenance.json" "$CAMERA_TRACK" "$LOAD_SAVE" "$SWITCH_COUNT" "$ALTERNATE_SAVE" > "$LOG" 2>&1
   if grep -Eq 'SCRIPT ERROR:|ERROR:' "$LOG" || ! grep -q '^NATIVE_PRESSURE_RESULT ' "$LOG"; then
     echo "Measurement failed; inspect $LOG" >&2
     exit 1
