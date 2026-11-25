@@ -70,6 +70,7 @@ scripts/player/        玩家移动和输入
 scripts/ui/            主菜单、暂停、HUD、物品栏与操作提示
 tests/unit/            隔离规则测试
 tests/integration/     场景、输入边界与真实物理碰撞测试
+prototypes/rust_world/ 独立 Rust 静态世界性能实验，命令与范围见版本规格
 docs/features/         按游戏版本组织的功能规格
 docs/                  开发说明、AI 配置与历史审查证据
 addons/                原样复用的 Godot AI 与 GdUnit4
@@ -129,5 +130,18 @@ Git 与发布状态按开发说明查询。
   [接入验收](docs/reviews/2026-11-23-rust-conveyor-host.md)。
 - [保存不再重建工厂](docs/features/prealpha-2/003-save-without-reconstruction.md)：
   保存与加载的校验边界调整；实施状态与验收见规格。
+- [纯 Rust 百万方块最小原型](docs/features/prealpha-2/004-rust-world-prototype.md)：
+  独立实验，验证静态世界存读档、局部编辑和范围数据更新；实施状态与验收见规格。
+
+### alpha-2.0
+
+**待实施的整体重构**，当前开发阶段尚未切换；以下设计不提前替代已有规则。
+
+- [完整 Rust 数据后端重构](docs/features/alpha-2.0/001-rust-backend-refactor.md)：
+  世界、工厂、数据查询与表现数据的职责划分、线程、规则兼容及候选性能预算。
+- [后端通信与完整存档协议](docs/features/alpha-2.0/002-backend-protocol-and-persistence.md)：
+  局部批量通信、可靠命令、时钟、格式 5、原子保存、加载交接与旧档导入。
+- [分阶段迁移、验收与新对话交接](docs/features/alpha-2.0/003-migration-plan.md)：
+  从当前基线到默认切换的任务、依赖、验证与新对话启动材料。
 
 历史审查与验证证据保存在 `docs/reviews/`，其中结果仅对应各次记录的验证范围。

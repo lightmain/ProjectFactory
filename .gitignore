@@ -32,3 +32,6 @@ export_credentials.cfg
 # Native transport binaries are installed from RustConveyor source.
 addons/rust_conveyor/
 .local-tools/
+
+# Rust prototype build artifacts
+/prototypes/rust_world/target/
