@@ -1,0 +1,23 @@
+[workspace]
+members = ["factory_core", "factory_cli", "factory_godot"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+publish = false
+
+[workspace.dependencies]
+factory_core = { path = "factory_core" }
+godot = { version = "=0.5.5", default-features = false, features = ["api-4-7"] }
+sha2 = "=0.10.8"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[profile.release]
+debug = 1

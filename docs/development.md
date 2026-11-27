@@ -88,6 +88,18 @@ RUST_CONVEYOR_SOURCE=/path/to/RustConveyor \
 ```
 
 每例预热 120 tick、测量 300 tick；目录必须尚不存在。
+每个引擎进程默认超时 1800 秒；用 `PRESSURE_TIMEOUT_SECONDS` 指定正数秒数，
+用可选的 `PRESSURE_MAX_RSS_BYTES` 指定正整数 RSS 字节上限，例如：
+
+```bash
+PRESSURE_TIMEOUT_SECONDS=120 PRESSURE_MAX_RSS_BYTES=4294967296 \
+  RUST_CONVEYOR_SOURCE=/path/to/RustConveyor \
+  bash scripts/run_native_pressure.sh /tmp/new-bounded-window gdscript headless million
+```
+
+RSS 每 200 ms 采样，阶段边界也检查；观测超限后停止引擎，并非操作系统硬内存配额。
+超时或超限返回失败，`phases.json` 保留已有阶段、RSS、限额及 `stop_reason`，
+对应日志保留引擎输出，失败例不进入有效比较。没有指定 RSS 上限时仅受超时限制。
 `provenance.json` 记录实际命令、两仓库源码输入指纹及安装库的构建信息和哈希，
 `work_samples.json` 将每 tick 的工作量与时间样本对应。
 没有 Rust 源码路径或安装库构建清单时明确标为未知来源，不从当前源码推定旧库来源。
@@ -98,6 +110,87 @@ RUST_CONVEYOR_SOURCE=/path/to/RustConveyor \
 标记隔离编辑器数据；macOS 游戏用户目录还需为 Godot 子进程单独设置 HOME。
 验证编排器与 Git 保持原 HOME。实际验证过的隔离步骤和限制见
 [2026-11-23 环境记录](reviews/2026-11-23-verification-environment.md)。
+
+## alpha-2.0 Rust workspace
+
+`rust/` 是完整数据后端的独立 workspace，当前切片状态与验收范围见
+[003 迁移计划](features/alpha-2.0/003-migration-plan.md#m01rust-workspace桥接能力和黄金输入m依赖-m00)。
+依赖、最低 Rust 版本和编译 profile 以 [Cargo 配置](../rust/Cargo.toml)为准。
+连续运输依赖独立 `RustConveyor` 源码，当前 Cargo 相对路径要求它与 `Godot/`
+位于同一父目录；具体位置见 `factory_core/Cargo.toml`。
+构建身份同时包含该包的源码指纹，安装清单包含其 MIT 许可。
+安装器目前仅支持 macOS arm64，生成库、描述文件、构建身份和依赖许可／源码归档；
+安装目标必须是已有 Godot 项目，拒绝已有安装和 `native` 父目录符号链接。
+新扩展提供握手及同步小工厂；主菜单的“新后端试玩”使用该路径，
+默认“新游戏”仍使用原后端。
+
+纯 Rust 的后台执行、时间切片、线程回收及保存作业与接入边界见
+[M06](features/alpha-2.0/003-migration-plan.md#m06后台执行时钟与可靠协议l依赖-m05)。
+最新单操作／一次领取及暂停后保存契约见
+[受控等待](features/alpha-2.0/002-backend-protocol-and-persistence.md#受控等待第-17-项)。
+该通道已纳入 workspace 测试，试玩仍使用同步入口，扩展尚不声明后台能力。
+
+```bash
+python3 -B rust/verify.py
+bash rust/install.sh /path/to/isolated-project debug
+cargo run --locked --manifest-path rust/Cargo.toml -p factory_cli -- simulate conveyor_continuous_v1 300
+```
+
+本机试玩首次安装可在仓库根目录运行 `bash rust/install.sh "$PWD" debug`，
+然后重新打开 Godot，在 Godot 编辑器里按 F5（运行项目），选择“新后端试玩”。
+已有安装时安装器拒绝覆盖；使用独立项目构建验证，避免热替换正在加载的库。
+试玩默认连续运输，Esc 暂停面板可确认切换规则并重新创建示例世界。
+选择平带（5）后，依次右键起点／终点建造整条线路；R 切换折线轴顺序，
+C 锁定当前前缀（可多次），左键取消。线路自动匹配地形并生成上下坡，
+无法通过时整条标红、保留草稿。其他工具保持单格建拆与朝向旋转，
+支持第一人称与自由视角。
+工具栏、物品栏与暂停菜单沿用原 UI；I 打开／关闭物品栏，Esc 先关闭物品栏，
+再次按下暂停。物品栏打开时物流继续、草稿隐藏并保留；
+暂停、失焦、切换视角或工具时取消草稿。暂停时物流停止；
+保存、载入、命名／覆盖确认、删除和保存并退出沿用现有菜单。
+暂停菜单可修改世界显示名称、自动保存分钟数（0 关闭）和保留份数，
+设置随存档保存。主菜单“新后端存档”直接打开新目录的列表；
+原后端存档仍从原“继续／载入游戏”入口进入。
+格式、目录事务和本切片边界见
+[同步试玩存读档规格](features/alpha-2.0/002-backend-protocol-and-persistence.md#同步试玩存读档切片2026-11-26当前规则)。
+加载／保存退出期间保持暂停，退出只有持久提交成功后才返回主菜单；
+读档失败保留原世界，Esc 可取消尚未提交的读档。异步手动保存允许恢复游戏，
+自动保存只在游戏运行时计时。
+范围与人工验收门槛见 [M05](features/alpha-2.0/003-migration-plan.md#m05godot-同步小工厂链路m依赖-m03m04)。
+
+验证在独立临时项目安装并启动真实扩展，日志保留在工具输出的目录；
+包括无库的明确错误、两个实例生命周期、安装来源、许可文件与源码归档核对。
+同步桥接与小工厂场景验收同时验证两套规则的收货、库存账目、批量观测、
+完整线路的折线／锁定／地形／失败原子性、单格建拆、朝向、
+Rust 射线、暂停和视角切换。
+存档集成另验完整玩家／会话恢复、两规则精确续跑、坏档保护、
+自动轮换、退出冻结、覆盖确认与失败提示。独立进程离线检查命令为：
+
+```bash
+cargo run --locked --manifest-path rust/Cargo.toml -p factory_cli -- validate-save /path/to/checkpoint.pfs
+```
+
+可在文件路径后加 0～36000 个 tick 的续跑数量。
+此命令只读档案并恢复候选，不修改目录或玩家存档。
+原运输扩展已安装时另验两类并存。首次发现原生扩展后先运行正常编辑器生命周期，
+再执行导入，兼容当前引擎在过早退出时的故障；任何异常退出仍使验证失败。
+入口同时生成当前 Godot 世界、射线与线路几何的独立观测并运行 Rust 对照；
+对应 oracle 测试需 `godot_oracle` feature 与新观测路径，默认 workspace 测试不代替这些对照。
+射线与世界的损坏观测也必须得到预期拒绝结果。
+此限制与当次独立对照见 [M01 审查](reviews/2026-11-25-alpha-2-start.md)。
+安装后重新启动编辑器，不能热重载原生库。
+
+已有无个人数据黄金档保存在 `rust/fixtures/legacy/`；以下入口核对原始字节，
+并以原 Godot 规则在新进程逐步续跑，后者要求已安装 RustConveyor：
+
+```bash
+python3 -B rust/test_legacy_fixtures.py
+python3 -B rust/verify.py --legacy
+```
+
+重新生成是显式开发操作：`rust/generate_fixtures.py` 要求已有已知来源的原运输库，
+只写新的输出，拒绝覆写已存在的黄金档。旧写端只作为兼容 oracle，
+不访问玩家存档目录，也不替代新后端的旧档导入验收。
 
 ## 当前状态与文档检查
 

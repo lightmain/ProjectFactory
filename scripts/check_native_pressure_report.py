@@ -40,7 +40,24 @@ def check(directory):
         report["disk_load_decode_seconds"] + report["mount_seconds"])
     phases = json.loads((directory / "phases.json").read_text())
     assert phases["trace_complete"] and phases["exit_code"] == 0 and not phases["timed_out"]
+    assert not phases.get("rss_limit_exceeded", False)
+    assert phases.get("stop_reason", "completed") == "completed"
     assert phases["rss_samples"] and all(row["rss_bytes"] > 0 for row in phases["rss_samples"])
+    resource_fields = {"timeout_seconds", "max_rss_bytes", "stop_reason", "rss_limit_exceeded"}
+    if resource_fields.intersection(phases):
+        assert resource_fields.issubset(phases), "Incomplete resource limit metadata"
+        assert phases["timed_out"] is False and phases["rss_limit_exceeded"] is False
+        timeout = phases["timeout_seconds"]
+        assert (isinstance(timeout, (int, float)) and not isinstance(timeout, bool)
+                and math.isfinite(timeout) and timeout > 0)
+        limit = phases["max_rss_bytes"]
+        if limit is not None:
+            assert isinstance(limit, int) and not isinstance(limit, bool) and limit > 0
+            observed = [row["rss_bytes"] for row in phases["rss_samples"]]
+            observed.extend(phases["operation_peak_rss_bytes"].values())
+            observed.extend(event["observed_rss_bytes"] for event in phases.get("boundaries", [])
+                            if event.get("observed_rss_bytes") is not None)
+            assert all(rss <= limit for rss in observed), "Observed RSS exceeds declared limit"
     for stage in phases["stages"].values():
         assert 0 <= stage["exclusive_usec"] <= stage["inclusive_usec"]
     for name, seconds in [("load_operation/load", report["disk_load_decode_seconds"]),

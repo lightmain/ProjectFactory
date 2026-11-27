@@ -74,7 +74,7 @@ class VerifyRegressionTests(unittest.TestCase):
             directory.mkdir(parents=True)
             (directory / "plugin.cfg").write_text(f'version="{version}"\n')
         for name in ("verify.sh", "check_types.py", "verification_project.py", "check_startup.py",
-                     "test_pressure_phases.py", "pressure_phases.py",
+                     "test_pressure_phases.py", "test_pressure_limits.py", "pressure_phases.py",
                      "test_native_pressure_report.py", "check_native_pressure_report.py",
                      "test_pressure_fixture.py", "native_pressure_provenance.py",
                      "test_native_pressure_summary.py", "summarize_native_pressure.py",
@@ -122,6 +122,18 @@ class VerifyRegressionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.cache.read_text(), "live editor cache")
+
+    def test_copy_excludes_nested_rust_build_outputs_but_keeps_sources(self) -> None:
+        source = self.root / "rust/factory_core/src/lib.rs"
+        source.parent.mkdir(parents=True)
+        source.write_text("pub struct Backend;\n")
+        generated = self.root / "rust/target/debug/generated.gdextension"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("generated compiler output")
+        destination = Path(self.temporary.name) / "without cargo outputs"
+        copy_project(self.root, destination)
+        self.assertTrue((destination / source.relative_to(self.root)).is_file())
+        self.assertFalse((destination / "rust/target").exists())
 
     def test_git_fixtures_ignore_parent_repository_environment(self) -> None:
         parent = Path(self.temporary.name) / "parent repository"

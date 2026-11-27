@@ -34,6 +34,17 @@ func show_cells(
 	world: VoxelWorldData, invalid: bool, locked_points: Array[Vector3i] = [],
 	cell_blocks: Array[int] = []
 ) -> void:
+	var existing_blocks: Array[int] = []
+	for cell: Vector3i in cells:
+		existing_blocks.append(world.get_block(cell))
+	show_observation(cells, directions, block, existing_blocks, invalid, locked_points, cell_blocks)
+
+
+func show_observation(
+	cells: Array[Vector3i], directions: Array[Vector3i], block: int,
+	existing_blocks: Array[int], invalid: bool, locked_points: Array[Vector3i] = [],
+	cell_blocks: Array[int] = []
+) -> void:
 	_structure_preview = false
 	_body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_HASH
 	_arrow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_HASH
@@ -42,7 +53,7 @@ func show_cells(
 	for index: int in range(cells.size()):
 		var cell: Vector3i = cells[index]
 		var cell_block: int = cell_blocks[index] if index < cell_blocks.size() else block
-		var existing: int = world.get_block(cell)
+		var existing: int = existing_blocks[index]
 		if cell_block == VoxelWorldData.Block.BELT and existing in [
 			VoxelWorldData.Block.MINER, VoxelWorldData.Block.CHEST,
 		]:

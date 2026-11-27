@@ -83,16 +83,6 @@ func update_status(
 	belt_active: bool = false, locked_count: int = 0, free_view: bool = false,
 	north_south_first: bool = true
 ) -> void:
-	if _free_view != free_view:
-		_free_view = free_view
-		queue_redraw()
-	_hint.text = (
-		"WASD  Camera    WHEEL  Zoom    Hold MMB  Orbit center\nTAB  First person    LMB / RMB  Build    I  Inventory    ESC  Pause    R  Rotate"
-		if free_view else
-		"WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nTAB  Free camera    I  Inventory    ESC  Pause    1 - 9  Build tool    R  Rotate"
-	)
-	if belt_active:
-		_hint.text = _hint.text.replace("R  Rotate", "R  Route order")
 	if hit == null:
 		_target.text = "Point at a block within 40 m" if free_view else "Aim at a block within 5 m"
 	else:
@@ -119,6 +109,26 @@ func update_status(
 		_build_hint.text = "3×3×3  /  R Rotate  /  RMB Place  /  LMB Break whole"
 	if VoxelWorldData.is_slope(block):
 		_build_hint.text = "45° 直行斜坡  /  R 转向  /  右键放置一段  /  不接受侧入"
+	update_observation(block, _target.text, _build_hint.text, captured, free_view, belt_active)
+
+
+func update_observation(
+	block: int, target_text: String, build_text: String, captured: bool,
+	free_view: bool = false, belt_active: bool = false
+) -> void:
+	## Presentation boundary shared with backends that do not own GDScript world data.
+	if _free_view != free_view:
+		_free_view = free_view
+		queue_redraw()
+	_hint.text = (
+		"WASD  Camera    WHEEL  Zoom    Hold MMB  Orbit center\nTAB  First person    LMB / RMB  Build    I  Inventory    ESC  Pause    R  Rotate"
+		if free_view else
+		"WASD  Move    SPACE  Jump    LMB  Break    RMB  Place\nTAB  Free camera    I  Inventory    ESC  Pause    1 - 9  Build tool    R  Rotate"
+	)
+	if belt_active:
+		_hint.text = _hint.text.replace("R  Rotate", "R  Route order")
+	_target.text = target_text
+	_build_hint.text = build_text
 	if not captured:
 		_target.text = "CURSOR RELEASED  /  Click to resume"
 	for index: int in range(_slots.size()):

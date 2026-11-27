@@ -12,7 +12,7 @@ def copy_project(source: Path, destination: Path) -> None:
         ignore=shutil.ignore_patterns(
             ".git", ".godot", ".trae", ".vscode", ".venv", ".tmp",
             "__pycache__", ".pytest_cache", ".DS_Store",
-            "reports", "build", "android", "*.pyc", "*.pyo",
+            "reports", "build", "target", "android", "*.pyc", "*.pyo",
             ".env", ".env.*", "*.log", "*.tmp", "*.bak", "*~",
             "export.cfg", "export_credentials.cfg",
         ),

@@ -1,0 +1,41 @@
+[package]
+name = "factory_core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rust_conveyor = { path = "../../../../RustConveyor", version = "=0.1.1" }
+sha2.workspace = true
+flate2 = "=1.1.11"
+
+[features]
+godot_oracle = []
+
+[[test]]
+name = "world_oracle"
+required-features = ["godot_oracle"]
+
+[[test]]
+name = "queries_oracle"
+required-features = ["godot_oracle"]
+
+[[test]]
+name = "route_oracle"
+required-features = ["godot_oracle"]
+
+[[test]]
+name = "belt_placement_oracle"
+required-features = ["godot_oracle"]
+
+[[test]]
+name = "logistics_oracle"
+required-features = ["godot_oracle"]
+
+[[test]]
+name = "meshing_oracle"
+required-features = ["godot_oracle"]
+
+[lints]
+workspace = true

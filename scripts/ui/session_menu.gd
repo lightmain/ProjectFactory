@@ -3,6 +3,8 @@ extends Control
 ## One shared file list; menus emit intentions and never touch game state.
 
 signal new_requested
+signal backend_play_requested
+signal backend_load_requested
 signal new_confirmed(world_name: String)
 signal continue_requested
 signal load_requested
@@ -13,6 +15,9 @@ signal save_requested
 signal save_confirmed(save_name: String, overwrite: bool)
 signal delete_confirmed(save_id: String)
 signal return_requested
+signal transport_selected(continuous: bool)
+signal backend_settings_changed(world_name: String, minutes: float, retention: int)
+signal file_panel_closed
 
 var _panel: PanelContainer
 var _home: VBoxContainer
@@ -26,6 +31,14 @@ var _message: Label
 var _continue: Button
 var _main_load: Button
 var _pause_load: Button
+var _resume: Button
+var _pause_save: Button
+var _pause_return: Button
+var _transport: OptionButton
+var _backend_settings: VBoxContainer
+var _backend_name: LineEdit
+var _autosave_minutes: SpinBox
+var _autosave_retention: SpinBox
 var _file_title: Label
 var _name_row: VBoxContainer
 var _save_name: LineEdit
@@ -42,6 +55,10 @@ var _paused: bool = false
 var _has_save: bool = false
 var _current_world: String = ""
 var _pending: Callable
+var _playground: bool = false
+var _continuous: bool = true
+var _available: bool = true
+var _current_world_id: String = ""
 
 
 func _ready() -> void:
@@ -65,6 +82,8 @@ func _ready() -> void:
 	_main = _column(10)
 	_home.add_child(_main)
 	_main.add_child(_button("新游戏", func() -> void: new_requested.emit(), true))
+	_main.add_child(_button("新后端试玩", func() -> void: backend_play_requested.emit()))
+	_main.add_child(_button("新后端存档", func() -> void: backend_load_requested.emit()))
 	_continue = _button("继续", func() -> void: continue_requested.emit())
 	_main.add_child(_continue)
 	_main_load = _button("载入游戏", func() -> void: load_requested.emit())
@@ -76,11 +95,41 @@ func _ready() -> void:
 	_world_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_world_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_pause.add_child(_world_label)
-	_pause.add_child(_button("继续  [Esc]", func() -> void: resume_requested.emit(), true))
+	_resume = _button("继续  [Esc]", func() -> void: resume_requested.emit(), true)
+	_pause.add_child(_resume)
 	_pause_load = _button("载入游戏", func() -> void: load_requested.emit())
 	_pause.add_child(_pause_load)
-	_pause.add_child(_button("保存游戏", func() -> void: save_requested.emit()))
-	_pause.add_child(_button("保存并退出", func() -> void: return_requested.emit()))
+	_pause_save = _button("保存游戏", func() -> void: save_requested.emit())
+	_pause.add_child(_pause_save)
+	_pause_return = _button("保存并退出", func() -> void: return_requested.emit())
+	_pause.add_child(_pause_return)
+	_transport = OptionButton.new()
+	_transport.add_item("连续运输")
+	_transport.add_item("离散运输")
+	_transport.item_selected.connect(func(index: int) -> void: transport_selected.emit(index == 0))
+	_pause.add_child(_transport)
+	_backend_settings = _column(6)
+	_backend_settings.add_child(_label("世界名称", 13, "#aaaaaa"))
+	_backend_name = _line_edit()
+	_backend_name.max_length = 80
+	_backend_name.text_changed.connect(func(_value: String) -> void: _emit_backend_settings())
+	_backend_settings.add_child(_backend_name)
+	var settings_row: HBoxContainer = HBoxContainer.new()
+	settings_row.add_theme_constant_override("separation", 12)
+	settings_row.add_child(_label("自动保存（分钟，0 关闭）", 13, "#aaaaaa"))
+	_autosave_minutes = SpinBox.new()
+	_autosave_minutes.max_value = 1440
+	_autosave_minutes.step = 1
+	_autosave_minutes.value_changed.connect(func(_value: float) -> void: _emit_backend_settings())
+	settings_row.add_child(_autosave_minutes)
+	settings_row.add_child(_label("保留份数", 13, "#aaaaaa"))
+	_autosave_retention = SpinBox.new()
+	_autosave_retention.min_value = 1
+	_autosave_retention.max_value = 100
+	_autosave_retention.value_changed.connect(func(_value: float) -> void: _emit_backend_settings())
+	settings_row.add_child(_autosave_retention)
+	_backend_settings.add_child(settings_row)
+	_pause.add_child(_backend_settings)
 	_files = _column(16)
 	column.add_child(_files)
 	_file_title = _label("", 28)
@@ -141,6 +190,13 @@ func _ready() -> void:
 
 
 func show_menu(paused: bool, has_save: bool, world_name: String = "") -> void:
+	_playground = false
+	_current_world_id = ""
+	_backend_settings.hide()
+	_resume.disabled = false
+	_pause_save.disabled = false
+	_pause_return.text = "保存并退出"
+	_transport.hide()
 	_paused = paused
 	_has_save = has_save
 	_current_world = world_name
@@ -162,6 +218,31 @@ func show_menu(paused: bool, has_save: bool, world_name: String = "") -> void:
 	first.grab_focus()
 
 
+func show_playground_menu(continuous: bool, available: bool = true, has_save: bool = false,
+		world_name: String = "新后端世界", minutes: float = 5.0, retention: int = 3,
+		world_id: String = "") -> void:
+	show_menu(true, has_save, world_name)
+	_playground = true
+	_continuous = continuous
+	_available = available
+	_current_world_id = world_id
+	_resume.disabled = not available
+	_pause_save.disabled = not available
+	_pause_load.disabled = false
+	_pause_return.text = "保存并退出" if available else "返回主菜单"
+	_transport.select(0 if continuous else 1)
+	_transport.visible = available
+	_backend_name.set_block_signals(true)
+	_backend_name.text = world_name
+	_backend_name.set_block_signals(false)
+	_autosave_minutes.set_value_no_signal(minutes)
+	_autosave_retention.set_value_no_signal(retention)
+	_backend_settings.visible = available
+	set_message("切换运输规则会重置世界；自动保存只在游戏运行时计时。")
+	if not available:
+		_pause_return.grab_focus()
+
+
 func show_name(default_name: String = "新世界") -> void:
 	_home.hide()
 	_files.hide()
@@ -171,6 +252,13 @@ func show_name(default_name: String = "新世界") -> void:
 	_resize_panel()
 	_world_name.grab_focus()
 	_world_name.select_all()
+
+
+func show_runtime_menu(failed: bool, has_save: bool, world_name: String, minutes: float,
+		retention: int, world_id: String) -> void:
+	show_playground_menu(true, not failed, has_save, world_name, minutes, retention, world_id)
+	_transport.hide()
+	_pause_return.disabled = failed
 
 
 func show_files(saving: bool, records: Array[Dictionary], default_name: String = "") -> void:
@@ -206,7 +294,13 @@ func close_panel() -> bool:
 		_pending = Callable()
 		return true
 	if _files.visible or _naming.visible:
-		show_menu(_paused, _has_save, _current_world)
+		if _files.visible:
+			file_panel_closed.emit()
+		if _playground:
+			show_playground_menu(_continuous, _available, _has_save, _current_world,
+				_autosave_minutes.value, int(_autosave_retention.value), _current_world_id)
+		else:
+			show_menu(_paused, _has_save, _current_world)
 		return true
 	return false
 
@@ -219,8 +313,23 @@ func confirm_overwrite(save_name: String, action: Callable) -> void:
 	_ask("覆盖存档", "与现有存档名称重复，是否覆盖\n“%s”" % save_name, action)
 
 
+func confirm_world_reset(action: Callable) -> void:
+	_ask("重置世界", "切换运输规则会清空当前世界。请先保存需要保留的进度。", action)
+
+
+func _emit_backend_settings() -> void:
+	if _playground and _autosave_minutes != null and _autosave_retention != null:
+		backend_settings_changed.emit(_backend_name.text, _autosave_minutes.value,
+			int(_autosave_retention.value))
+
+
 func set_message(message: String, _failed: bool = false) -> void:
 	_message.text = message
+
+
+func set_world_name(world_name: String) -> void:
+	_current_world = world_name
+	_world_label.text = world_name
 
 
 func _confirm_name() -> void:
@@ -240,7 +349,7 @@ func _confirm_file() -> void:
 	if save_name.is_empty():
 		return
 	for record: Dictionary in _records:
-		if record["name"] == save_name:
+		if record["name"] == save_name and (_current_world_id.is_empty() or record.get("world_id", "") == _current_world_id):
 			confirm_overwrite(save_name,
 				func() -> void: save_confirmed.emit(save_name, true))
 			return

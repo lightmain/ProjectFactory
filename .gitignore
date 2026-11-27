@@ -35,3 +35,7 @@ addons/rust_conveyor/
 
 # Rust prototype build artifacts
 /prototypes/rust_world/target/
+
+# Complete backend builds and installed extension artifacts
+/rust/target/
+/native/factory_backend/

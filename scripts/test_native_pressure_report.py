@@ -51,6 +51,49 @@ class ReportTests(unittest.TestCase):
     def test_complete_independent_load_evidence_is_accepted(self):
         self.verify(self.fixture())
 
+    def test_resource_stops_are_rejected_even_with_complete_trace_and_zero_exit(self):
+        for change in [
+            {"rss_limit_exceeded": True},
+            {"stop_reason": "rss_limit"},
+            {"stop_reason": "timeout"},
+            {"stop_reason": "metadata_invalid"},
+        ]:
+            fixture = self.fixture()
+            fixture["phases.json"].update(change)
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                self.verify(fixture)
+
+    def test_bounded_reports_require_all_resource_terminal_fields(self):
+        limits = {
+            "timeout_seconds": 1, "max_rss_bytes": 8192,
+            "stop_reason": "completed", "rss_limit_exceeded": False,
+        }
+        fixture = self.fixture()
+        fixture["phases.json"].update(limits)
+        self.verify(fixture)
+        for missing in limits:
+            invalid = copy.deepcopy(fixture)
+            del invalid["phases.json"][missing]
+            with self.subTest(missing=missing), self.assertRaises(AssertionError):
+                self.verify(invalid)
+
+    def test_observed_memory_excess_cannot_be_hidden_by_completed_terminal_fields(self):
+        for source in ["samples", "peaks", "boundaries"]:
+            fixture = self.fixture()
+            phases = fixture["phases.json"]
+            phases.update({
+                "timeout_seconds": 1, "max_rss_bytes": 8192,
+                "stop_reason": "completed", "rss_limit_exceeded": False,
+            })
+            if source == "samples":
+                phases["rss_samples"].append({"rss_bytes": 9000})
+            elif source == "peaks":
+                phases["operation_peak_rss_bytes"]["steady"] = 9000
+            else:
+                phases["boundaries"] = [{"observed_rss_bytes": 9000}]
+            with self.subTest(source=source), self.assertRaises(AssertionError):
+                self.verify(fixture)
+
     def test_graphical_evidence_requires_measured_focus_state(self):
         fixture = self.fixture()
         fixture["performance.json"].update({

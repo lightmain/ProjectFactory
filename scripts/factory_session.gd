@@ -21,6 +21,8 @@ func _ready() -> void:
 	menu.name = "SessionMenu"
 	layer.add_child(menu)
 	menu.new_requested.connect(_request_new)
+	menu.backend_play_requested.connect(_start_backend_play)
+	menu.backend_load_requested.connect(func() -> void: _start_backend_play(true))
 	menu.new_confirmed.connect(start_new)
 	menu.continue_requested.connect(func() -> void: load_game())
 	menu.load_requested.connect(_open_load)
@@ -51,6 +53,18 @@ func _input(event: InputEvent) -> void:
 
 func _request_new() -> void:
 	menu.show_name()
+
+
+func _start_backend_play(open_saves: bool = false) -> void:
+	if not ClassDB.class_exists(&"FactoryBackend"):
+		menu.set_message("新后端尚未安装，请按开发说明构建后重新启动。")
+		return
+	if open_saves:
+		get_tree().set_meta("backend_open_saves", true)
+	var result: Error = get_tree().change_scene_to_file("res://scenes/factory_playground.tscn")
+	if result != OK:
+		get_tree().remove_meta("backend_open_saves")
+		menu.set_message("新后端试玩场景无法打开。")
 
 
 func start_new(world_name: String = "新世界") -> void:

@@ -14,9 +14,15 @@
 连接编辑器 AI 工具见 [Godot AI 配置](docs/setup/godot_ai.md)。
 
 启动后选择 **新游戏**并输入世界名称、**继续**最新存档，或**载入游戏**选择存档。
-Esc 菜单提供继续、载入、命名保存与保存并退出到主菜单。
+**新后端试玩**进入独立的小工厂；构建与本轮验收范围见
+[Rust 后端试玩](docs/development.md#alpha-20-rust-workspace)。
+**新后端存档**打开 Rust 世界的独立存档列表。
+原后端的 Esc 菜单提供继续、载入、命名保存与保存并退出到主菜单；
+试玩菜单的可用操作见上述开发说明。
 存档列表支持选择、双击载入与确认删除；覆盖同名档须确认。
-自动存档参数与详细规则见 [多存档与简洁菜单](docs/features/prealpha-1/007-multiple-saves.md)。
+自动存档参数与详细规则见 [多存档与简洁菜单](docs/features/prealpha-1/007-multiple-saves.md)；
+Rust 试玩的存档及暂停菜单设置见
+[同步存读档切片](docs/features/alpha-2.0/002-backend-protocol-and-persistence.md#同步试玩存读档切片2026-11-26当前规则)。
 
 | 操作 | 按键 |
 | --- | --- |
@@ -71,6 +77,7 @@ scripts/ui/            主菜单、暂停、HUD、物品栏与操作提示
 tests/unit/            隔离规则测试
 tests/integration/     场景、输入边界与真实物理碰撞测试
 prototypes/rust_world/ 独立 Rust 静态世界性能实验，命令与范围见版本规格
+rust/                  alpha-2.0 数据后端 workspace，实施状态见版本规格
 docs/features/         按游戏版本组织的功能规格
 docs/                  开发说明、AI 配置与历史审查证据
 addons/                原样复用的 Godot AI 与 GdUnit4
@@ -135,12 +142,13 @@ Git 与发布状态按开发说明查询。
 
 ### alpha-2.0
 
-**待实施的整体重构**，当前开发阶段尚未切换；以下设计不提前替代已有规则。
+**分阶段实施中的整体重构**，当前开发阶段尚未切换；
+各规格按分节标明当前切片与待实施范围，替代关系仅在已验证的条款旁标注。
 
 - [完整 Rust 数据后端重构](docs/features/alpha-2.0/001-rust-backend-refactor.md)：
   世界、工厂、数据查询与表现数据的职责划分、线程、规则兼容及候选性能预算。
 - [后端通信与完整存档协议](docs/features/alpha-2.0/002-backend-protocol-and-persistence.md)：
-  局部批量通信、可靠命令、时钟、格式 5、原子保存、加载交接与旧档导入。
+  局部批量表现、受控等待、时钟、格式 5、原子保存、加载交接与旧档导入。
 - [分阶段迁移、验收与新对话交接](docs/features/alpha-2.0/003-migration-plan.md)：
   从当前基线到默认切换的任务、依赖、验证与新对话启动材料。
 

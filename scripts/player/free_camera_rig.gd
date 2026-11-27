@@ -19,6 +19,7 @@ var cursor_position: Vector2
 var _player: FactoryPlayer
 var _world: VoxelWorldData
 var _input_enabled: bool = true
+var _backend_frozen: bool = false
 var _rotating: bool = false
 var _saved_cursor: Vector2
 var _zoom_steps: int = 0
@@ -87,6 +88,13 @@ func set_input_enabled(enabled: bool) -> void:
 		_zoom_steps = 0
 
 
+func set_backend_frozen(frozen: bool) -> void:
+	_backend_frozen = frozen
+	if frozen:
+		_orbit_motion = Vector2.ZERO
+		_zoom_steps = 0
+
+
 func is_rotating() -> bool:
 	return _rotating
 
@@ -104,6 +112,12 @@ func stop_rotating() -> void:
 
 func handle_input(event: InputEvent) -> void:
 	if not active or not _input_enabled:
+		return
+	if _backend_frozen:
+		if event is InputEventMouseButton:
+			var release: InputEventMouseButton = event as InputEventMouseButton
+			if release.button_index == MOUSE_BUTTON_MIDDLE and not release.pressed:
+				stop_rotating()
 		return
 	if event is InputEventMouseButton:
 		var button: InputEventMouseButton = event as InputEventMouseButton
@@ -188,7 +202,7 @@ func _orbit() -> void:
 
 
 func move_camera(movement: Vector3, delta: float) -> void:
-	if not active or not _input_enabled or not movement.is_finite() or delta <= 0:
+	if not active or not _input_enabled or _backend_frozen or not movement.is_finite() or delta <= 0:
 		return
 	var motion: Vector3 = Basis(Vector3.UP, camera.rotation.y) * movement.limit_length() * move_speed * delta
 	_move_safe(motion)
@@ -212,7 +226,7 @@ func _move_safe(motion: Vector3) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not active:
+	if not active or _backend_frozen:
 		return
 	if global_position.distance_to(anchor_position()) > max_distance + 0.001:
 		enter()

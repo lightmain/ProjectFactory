@@ -7,6 +7,8 @@ BACKEND="${2:-rust}"
 DISPLAY_MODE="${3:-headless}"
 SELECTED_CASE="${4:-all}"
 CAMERA_TRACK="${5:-fixed}"
+PRESSURE_TIMEOUT_SECONDS="${PRESSURE_TIMEOUT_SECONDS:-1800}"
+PRESSURE_MAX_RSS_BYTES="${PRESSURE_MAX_RSS_BYTES:-}"
 GODOT_BIN="${GODOT_BIN:-godot}"
 BENCHMARK_PROJECT="${BENCHMARK_PROJECT:-$PROJECT_ROOT}"
 LOAD_SAVE="${LOAD_SAVE:-}"
@@ -25,6 +27,8 @@ DISPLAY_ARGS=()
 [[ "$DISPLAY_MODE" != headless ]] || DISPLAY_ARGS=(--headless)
 TIME_ARGS=(-v)
 [[ "$(uname -s)" != Darwin ]] || TIME_ARGS=(-l)
+LIMIT_ARGS=(--timeout-seconds "$PRESSURE_TIMEOUT_SECONDS")
+[[ -z "$PRESSURE_MAX_RSS_BYTES" ]] || LIMIT_ARGS+=(--max-rss-bytes "$PRESSURE_MAX_RSS_BYTES")
 CASES=(1k:16:6 10k:32:12 100k:64:27 million:128:64)
 if [[ "$SELECTED_CASE" != all ]]; then
   case "$SELECTED_CASE" in
@@ -47,7 +51,7 @@ for CASE in "${CASES[@]}"; do
   echo "Measuring $LABEL ($BACKEND, $DISPLAY_MODE)"
   # macOS Bash 3.2 treats an empty array as unset with nounset enabled.
   /usr/bin/time "${TIME_ARGS[@]}" python3 -B "$PROJECT_ROOT/scripts/pressure_phases.py" \
-    "$OUTPUT/$LABEL/phases.json" -- "$GODOT_BIN" ${DISPLAY_ARGS[@]+"${DISPLAY_ARGS[@]}"} \
+    "${LIMIT_ARGS[@]}" "$OUTPUT/$LABEL/phases.json" -- "$GODOT_BIN" ${DISPLAY_ARGS[@]+"${DISPLAY_ARGS[@]}"} \
     --path "$BENCHMARK_PROJECT" -s res://scripts/pressure_native_benchmark.gd \
     -- "$SIZE" "$HEIGHT" "$OUTPUT/$LABEL" 300 120 "$BACKEND" "$OUTPUT/provenance.json" "$CAMERA_TRACK" "$LOAD_SAVE" "$SWITCH_COUNT" "$ALTERNATE_SAVE" > "$LOG" 2>&1
   if grep -Eq 'SCRIPT ERROR:|ERROR:' "$LOG" || ! grep -q '^NATIVE_PRESSURE_RESULT ' "$LOG"; then

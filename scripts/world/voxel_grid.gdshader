@@ -10,11 +10,16 @@ uniform vec3 decoration_camera = vec3(0.0);
 uniform float decoration_distance = 0.0;
 uniform vec4 output_color : source_color;
 uniform vec4 input_color : source_color;
+uniform bool transform_decoration_centers = false;
+uniform vec3 decoration_origin = vec3(0.0);
 
 void vertex() {
 	world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	face_normal = abs(NORMAL);
 	decoration = CUSTOM0;
+	if (transform_decoration_centers) {
+		decoration.xyz = (MODEL_MATRIX * vec4(CUSTOM0.xyz - decoration_origin, 1.0)).xyz;
+	}
 }
 
 void fragment() {

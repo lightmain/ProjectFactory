@@ -38,6 +38,7 @@ var _focused: bool = true
 var _gravity: float = 0.0
 var body_visual: MeshInstance3D
 var _session_paused: bool = false
+var _backend_frozen: bool = false
 
 
 func _ready() -> void:
@@ -88,7 +89,13 @@ func controls_captured() -> bool:
 
 
 func controls_enabled() -> bool:
-	return not _session_paused and not _inventory_open and (_captured or (_free_view and _focused))
+	return not _backend_frozen and not _session_paused and not _inventory_open \
+		and (_captured or (_free_view and _focused))
+
+
+func set_backend_frozen(frozen: bool) -> void:
+	# Ordinary operation waits preserve jump release and held camera gestures.
+	_backend_frozen = frozen
 
 
 func set_session_paused(paused: bool) -> void:
@@ -162,6 +169,13 @@ func handle_input(event: InputEvent) -> void:
 		free_cancel_requested.emit()
 		pause_requested.emit()
 		return
+	if _backend_frozen:
+		if _free_view and event is InputEventMouseButton:
+			var release: InputEventMouseButton = event as InputEventMouseButton
+			if release.button_index == MOUSE_BUTTON_MIDDLE and not release.pressed:
+				_free_rotating = false
+				camera_input_requested.emit(event)
+		return
 	if event.is_action_pressed("toggle_view") and not event.is_echo():
 		view_mode_requested.emit()
 		return
@@ -225,6 +239,8 @@ func _handle_build_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _backend_frozen:
+		return
 	# Camera rotation never affects the body's physics transform.
 	global_basis = Basis.IDENTITY
 	var grounded: bool = is_on_floor()

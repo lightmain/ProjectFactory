@@ -30,6 +30,7 @@ trap 'rm -rf "$CHECK_PROJECT_ROOT"' EXIT
 echo "验证日志：$CHECK_LOG_DIR"
 python3 -B "$PROJECT_ROOT/scripts/test_verify.py" 2>&1 | tee "$CHECK_LOG_DIR/verification_tests.log"
 python3 -B "$PROJECT_ROOT/scripts/test_pressure_phases.py" 2>&1 | tee "$CHECK_LOG_DIR/pressure_phase_tests.log"
+python3 -B "$PROJECT_ROOT/scripts/test_pressure_limits.py" 2>&1 | tee "$CHECK_LOG_DIR/pressure_limit_tests.log"
 python3 -B "$PROJECT_ROOT/scripts/test_native_pressure_report.py" 2>&1 | tee "$CHECK_LOG_DIR/pressure_report_tests.log"
 python3 -B "$PROJECT_ROOT/scripts/test_pressure_fixture.py" 2>&1 | tee "$CHECK_LOG_DIR/pressure_fixture_tests.log"
 python3 -B "$PROJECT_ROOT/scripts/test_native_pressure_summary.py" 2>&1 | tee "$CHECK_LOG_DIR/pressure_summary_tests.log"
