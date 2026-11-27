@@ -14,6 +14,7 @@ signal view_changed(free_view: bool)
 signal interaction_cancelled
 signal error_reported(message: String)
 signal session_installed(session: Dictionary)
+signal gameplay_finished(result: Dictionary)
 
 const MAX_PENDING_EVENTS: int = 16
 const MAX_PENDING_EVENT_BYTES: int = 65536
@@ -143,8 +144,14 @@ func set_save_settings(name: String, minutes: float, retention: int) -> void:
 
 
 func advance_autosave(delta: float) -> void:
+	if not can_step_physics() or _load_requested:
+		return
+	_accumulate_autosave(delta)
+
+
+func _accumulate_autosave(delta: float) -> void:
 	var interval: float = _number(_session.get("autosave_minutes", 0.0)) * 60.0
-	if not is_finite(delta) or delta < 0 or interval <= 0 or not can_step_physics() or _load_requested:
+	if not is_finite(delta) or delta < 0 or interval <= 0:
 		return
 	_autosave_seconds = minf(interval, _autosave_seconds + delta)
 	if _autosave_seconds >= interval and not _auto_waiting:
@@ -154,6 +161,11 @@ func advance_autosave(delta: float) -> void:
 
 func select_tool(tool: int) -> void:
 	_tool = tool
+
+
+func set_tool_state(tool: int, facing: int) -> void:
+	_tool = tool
+	_facing = facing
 
 
 func rotate_tool() -> void:
@@ -230,6 +242,12 @@ func queue_edit(command: Dictionary) -> bool:
 	return _queue_event(command, "")
 
 
+func queue_gameplay(command: Dictionary) -> bool:
+	if not _error.is_empty() or _load_requested or _exit_requested or _coordinator.state().closed:
+		return false
+	return _queue_event(command, "gameplay")
+
+
 func _queue_event(command: Dictionary, operation: String) -> bool:
 	return _queue_events([{"input": command, "operation": operation}])
 
@@ -283,8 +301,13 @@ func finish_physics_frame(frame: int, delta: float) -> bool:
 	if not _error.is_empty() or _coordinator.state().handoff or _load_requested \
 			or (_paused and delta > 0):
 		return false
+	var count_autosave: bool = can_step_physics()
 	_pending_frame = {"frame": frame, "delta": delta}
-	return _flush_frame()
+	var admitted: bool = _flush_frame()
+	# The sampled frame is retained before autosave queues its pause, including Busy.
+	if count_autosave:
+		_accumulate_autosave(delta)
+	return admitted
 
 
 func _flush_frame() -> bool:
@@ -377,6 +400,11 @@ func _handle_result(result: Dictionary) -> void:
 	var command: int = seq
 	var operation: String = _operations.get(command, "")
 	var outcome: String = str(result.outcome)
+	if operation == "gameplay":
+		gameplay_finished.emit(result.duplicate(true))
+		_coordinator.take_result(seq)
+		_operations.erase(seq)
+		return
 	if outcome == "load_prepared":
 		_candidate_job = _integer(result.job_id)
 		_candidate_result = seq

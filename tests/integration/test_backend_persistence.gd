@@ -14,6 +14,7 @@ func before_test() -> void:
 	_root = "user://test_backend_" + SaveGameStore.new_id()
 	var scene: PackedScene = load("res://scenes/factory_playground.tscn") as PackedScene
 	_game = auto_free(scene.instantiate()) as Node3D
+	_game.set("background_runtime", false)
 	_game.set("save_root", _root)
 	add_child(_game)
 	_game.set_physics_process(false)

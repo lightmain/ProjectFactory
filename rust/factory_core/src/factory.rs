@@ -191,6 +191,16 @@ impl Factory {
             Storage::Continuous(factory) => Ok(factory.observe()?),
         }
     }
+    pub fn local_machine(
+        &self,
+        cell: Cell,
+        limit: usize,
+    ) -> Result<Option<logistics::MachineState>, Error> {
+        match &self._storage {
+            Storage::Legacy(factory) => Ok(factory.local_machine(cell, limit)?),
+            Storage::Continuous(factory) => Ok(factory.local_machine(cell, limit)?),
+        }
+    }
     pub fn checkpoint(&self) -> Result<Checkpoint, Error> {
         let saved = match &self._storage {
             Storage::Legacy(factory) => Saved::Legacy(Box::new(factory.checkpoint())),

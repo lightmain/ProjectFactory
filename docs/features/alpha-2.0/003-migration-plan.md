@@ -17,6 +17,12 @@
 本次发现、修复及验证边界见
 [2026-11-27 审查](../../reviews/2026-11-27-controlled-wait.md)。
 
+随后接入后台小工厂：移动、查询、安全建拆、线路与局部动态显示现已接入。
+开头“实际试玩输入接续尚未完成”为前一切片的验收边界；
+本轮范围与验收状态统一见
+[002 试玩接入](002-backend-protocol-and-persistence.md#后台试玩输入与动态物流接入2026-11-27当前规则)。
+M07 的剩余大世界流送与后续迁移不因本轮小工厂接入而自动完成。
+
 按 [AGENTS](../../../AGENTS.md)阅读 README、对应版本规格与实际工作树。
 README 当前阶段仍是 prealpha-2；alpha-2.0 文档存在不表示已实现或已切换阶段。
 计划制定时 `prototypes/rust_world/` 是独立静态实验，不能当成完整后端起点。
@@ -452,6 +458,9 @@ M06c-2a 保存／取消、M06c-2b 目录／候选／交接及 M06c-3a 基础与
   附近键由玩家／镜头位置有界去重，运动保护检查完整扫掠与修订。
   两规则真实扩展及宿主针对性检查、本片独立窄复审已通过，
   实际试玩的后台查询、建造输入与动态显示继续实施。
+  上句为前序切片边界；小工厂查询、输入与动态显示已由
+  [002 试玩接入](002-backend-protocol-and-persistence.md#后台试玩输入与动态物流接入2026-11-27当前规则)接续，
+  握手仍按该节区分完整迁移能力与独立试玩。
 
 ### M07：Rust 表现数据与 Godot 流送（L，依赖 M06 的可靠通道与宿主事件协调）
 
@@ -460,6 +469,9 @@ M07c 的完整轮资源安装与非阻塞领取已通过针对性验收、阶段
 最后一个退休竞态增量的针对性复验与独立复审也已通过。
 进展及限制见 [当轮证据](../../reviews/2026-11-25-alpha-2-start.md#m07a-cpu-静态网格起步2026-11-26实施中)，
 当前状态不代表真实场景运动接续或本里程碑整体完成。
+真实小工厂运动已由
+[002 试玩接入](002-backend-protocol-and-persistence.md#后台试玩输入与动态物流接入2026-11-27当前规则)接续，
+本里程碑的剩余大世界流送仍待实施。
 
 交付：`meshing`、局部候选／实例缓冲和 Godot 表现安装器。
 涉及 `voxel_world_view.gd`、`logistics_view.gd`、矿石池与表面 shader 的现有验收。
@@ -630,7 +642,8 @@ M00 为各尺度设置超时／内存停止线。后续超线一次保留未完�
 bash scripts/verify.sh
 ```
 
-以下 Rust／安装命令是**拟新增入口，M01／M15 实现后才可执行**：
+以下 Rust 检查及安装入口已可执行，环境与用法见
+[开发说明](../../development.md#alpha-20-rust-workspace)：
 
 ```bash
 cargo test --manifest-path rust/Cargo.toml --workspace
@@ -639,7 +652,7 @@ cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets -- -D war
 bash rust/install.sh /path/to/isolated-godot-project release
 ```
 
-`factory_cli` 至少提供生成、重放、check-save、import-legacy、benchmark 子命令，
+后续完整 CLI 仍计划提供生成、重放、check-save、import-legacy、benchmark 子命令，
 其精确参数在实现时写入 [开发说明](../../development.md)，不要让本文件与操作说明竞争。
 RustConveyor 包验证在其仓库按实际 workspace 命令执行；
 只有需要公共 API 变更才修改包仓库，并分开审查。

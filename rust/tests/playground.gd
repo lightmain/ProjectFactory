@@ -10,6 +10,7 @@ func _check() -> void:
 	var script: Script = load("res://scripts/backend/factory_playground.gd") as Script
 	var game: Node3D = Node3D.new()
 	game.set_script(script)
+	game.set("background_runtime", false)
 	var save_root: String = "user://test_playground_" + str(Time.get_ticks_usec())
 	game.set("save_root", save_root)
 	root.add_child(game)

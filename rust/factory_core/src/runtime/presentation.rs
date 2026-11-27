@@ -345,6 +345,7 @@ pub(super) fn is_edit(command: &Command) -> bool {
     matches!(
         command,
         Command::Build(_)
+            | Command::ConfirmBuild { .. }
             | Command::BuildRoute(_)
             | Command::Remove(_)
             | Command::SetDirection(_, _)

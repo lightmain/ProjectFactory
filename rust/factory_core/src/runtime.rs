@@ -25,8 +25,10 @@ mod candidate;
 pub use candidate::CandidateInfo;
 use candidate::{Candidate, CandidateSlot, MAX_CANDIDATE_BYTES};
 mod controls;
+pub mod display;
 pub mod presentation;
 pub mod queries;
+pub mod safety;
 
 pub const RESULT_BYTES: usize = 96;
 const MAX_INPUT_BYTES: usize = 64 * 1024;
@@ -72,6 +74,12 @@ impl Save {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    PrepareBuild(safety::Request),
+    ConfirmBuild {
+        token: u64,
+        pose: safety::Pose,
+        engine_clear: bool,
+    },
     Build(Vec<(Cell, Block, Direction)>),
     BuildRoute(queries::RouteRequest),
     Query(queries::Query),
@@ -85,12 +93,24 @@ pub enum Command {
     ListDirectory,
     PrepareLoad(String),
     Delete(String, u64),
-    PresentationReady { job_id: u64 },
-    SwitchApplied { job_id: u64, next_epoch: u64 },
+    PresentationReady {
+        job_id: u64,
+    },
+    SwitchApplied {
+        job_id: u64,
+        next_epoch: u64,
+    },
 }
 impl Command {
     fn bytes(&self, bounds: Bounds) -> Result<usize, Error> {
         match self {
+            Self::PrepareBuild(request) => request.bytes(bounds),
+            Self::ConfirmBuild { token, pose, .. } => {
+                if *token == 0 || *token > i64::MAX as u64 || !pose.valid() {
+                    return Err(Error::InvalidArgument);
+                }
+                Ok(192)
+            }
             Self::Query(query) => query.bytes(bounds),
             Self::BuildRoute(route) => route.bytes(bounds),
             Self::Build(cells) => {
@@ -224,6 +244,14 @@ pub enum Status {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
+    BuildPrepared {
+        token: u64,
+        pose_frame: u64,
+        lift: f64,
+    },
+    BuildCommitted {
+        lift: f64,
+    },
     Committed,
     QueryReady {
         query_id: u64,
@@ -354,6 +382,8 @@ struct Mailbox {
     presentation: Option<presentation::Stream>,
     presentation_generation: u64,
     next_presentation_id: u64,
+    display: Option<display::Round>,
+    next_display_id: u64,
 }
 impl Default for Mailbox {
     fn default() -> Self {
@@ -376,6 +406,8 @@ impl Default for Mailbox {
             presentation: None,
             presentation_generation: 0,
             next_presentation_id: 1,
+            display: None,
+            next_display_id: 1,
         }
     }
 }
@@ -797,6 +829,8 @@ struct WorkerState {
     timing: Timing,
     candidate: Option<Candidate>,
     presentation: Option<presentation::Build>,
+    prepared_build: Option<safety::Prepared>,
+    request_id: u64,
 }
 
 fn execute(
@@ -805,6 +839,14 @@ fn execute(
     command: Command,
 ) -> Result<Outcome, factory::Error> {
     match command {
+        Command::PrepareBuild(request) => {
+            safety::prepare(factory, state, state.request_id, request)
+        }
+        Command::ConfirmBuild {
+            token,
+            pose,
+            engine_clear,
+        } => safety::confirm(factory, state, token, pose, engine_clear),
         Command::Build(cells) => factory
             .preview(&cells)
             .and_then(|p| factory.commit(&p))
@@ -885,6 +927,7 @@ fn run_commands_with_io(
             mailbox.directory = None;
             mailbox.candidate = None;
             mailbox.presentation = None;
+            mailbox.display = None;
             return Ok(());
         }
         // Controls win their position at an event boundary. I/O independently
@@ -895,7 +938,8 @@ fn run_commands_with_io(
         if let Some(io) = &mut io {
             io.poll(shared, epoch, &mut state);
         }
-        let built_chunk = presentation::service(shared, &factory, &mut state);
+        let built_chunk = presentation::service(shared, &factory, &mut state)
+            | display::service(shared, &factory);
         let mut mailbox = shared.lock();
         if !mailbox.pending {
             if built_chunk {
@@ -998,6 +1042,7 @@ fn run_commands_with_io(
             continue;
         }
         let is_frame = matches!(command, Command::Frame(_));
+        state.request_id = seq;
         let result = execute(&mut factory, &mut state, command);
         let outcome = match result {
             Ok(outcome) => outcome,

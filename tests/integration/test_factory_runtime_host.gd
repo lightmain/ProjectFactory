@@ -316,6 +316,25 @@ func test_autosave_clock_stops_on_pause_or_backpressure_and_keeps_single_pending
 	assert_str(_host.request_save("手动优先").error).is_equal("busy")
 
 
+func test_autosave_due_on_sampled_frame_keeps_frame_before_pause() -> void:
+	_host.set_session({"world_id": "07070707070707070707070707070707",
+		"world_name": "自动帧", "autosave_minutes": 1.0, "autosave_retention": 3})
+	_host.advance_autosave(59.99)
+	assert_bool(_host.finish_physics_frame(1, 0.02)).is_true()
+	assert_bool(_host.paused()).is_true()
+	_pump()
+	var frames: Array = _backend.get("inputs")
+	assert_int(frames.size()).is_equal(1)
+	assert_str(frames[0].kind).is_equal("frame")
+	assert_float(frames[0].delta).is_equal(0.02)
+	_backend.call("emit_command", 1, "frame_completed", {"frame_seq": 1})
+	_pump()
+	var inputs: Array = _backend.get("inputs")
+	assert_int(inputs.size()).is_equal(2)
+	if inputs.size() == 2:
+		assert_str(inputs[1].kind).is_equal("pause")
+
+
 func test_inventory_escape_and_focus_do_not_restore_capture_through_backend_freeze() -> void:
 	var inventory: InventoryView = auto_free(InventoryView.new()) as InventoryView
 	add_child(inventory)

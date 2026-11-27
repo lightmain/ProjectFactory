@@ -132,6 +132,9 @@ def main():
     shutil.copy2(ROOT / "rust/tests/runtime_queries.gd", project / "runtime_queries.gd")
     godot("runtime_queries_bridge", ["-s", "res://runtime_queries.gd", "--quit-after", "600"],
         marker="FACTORY_RUNTIME_QUERIES_PASS")
+    shutil.copy2(ROOT / "rust/tests/runtime_display.gd", project / "runtime_display.gd")
+    godot("runtime_display_bridge", ["-s", "res://runtime_display.gd", "--quit-after", "600"],
+         marker="FACTORY_RUNTIME_DISPLAY_PASS")
     shutil.copy2(ROOT / "rust/tests/runtime_meshing.gd", project / "runtime_meshing.gd")
     godot("runtime_meshing_bridge", ["-s", "res://runtime_meshing.gd", "--quit-after", "600"],
           marker="FACTORY_RUNTIME_MESHING_PASS")

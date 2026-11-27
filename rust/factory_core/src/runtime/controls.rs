@@ -125,9 +125,11 @@ pub(super) fn execute(
             mailbox.candidate = None;
             mailbox.handoff_frozen = false;
             mailbox.query = None;
+            mailbox.display = None;
             mailbox.presentation = None;
             mailbox.presentation_generation = 0;
             state.presentation = None;
+            state.prepared_build = None;
             Outcome::LoadCompleted { job_id, next_epoch }
         }
         _ => unreachable!("load phase"),

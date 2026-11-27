@@ -13,6 +13,7 @@ func before(_do_skip: bool = not ClassDB.class_exists(&"FactoryBackend"),
 func before_test() -> void:
 	var scene: PackedScene = load("res://scenes/factory_playground.tscn") as PackedScene
 	_game = auto_free(scene.instantiate()) as Node3D
+	_game.set("background_runtime", false)
 	_game.set("save_root", "user://test_playground_" + SaveGameStore.new_id())
 	add_child(_game)
 	_game.set_process(false)

@@ -73,6 +73,16 @@ fn runtime_input(d: &VarDictionary) -> Result<rt::Input, String> {
     let kind: GString = input(d, "kind")?;
     if kind.len() > 32 { return Err("invalid_command".into()); }
     let command = match kind.to_string().as_str() {
+        "prepare_build" | "prepare_route" => RuntimeCommand::PrepareBuild(rt::safety::Request {
+            pose: runtime_pose(d)?,
+            intent: if kind == "prepare_route" {
+                rt::safety::Intent::Route(runtime_route(d)?)
+            } else { rt::safety::Intent::Cells(runtime_build(d)?) },
+        }),
+        "confirm_build" => RuntimeCommand::ConfirmBuild {
+            token: u64::try_from(input::<i64>(d, "token")?).map_err(|_| "invalid_token")?,
+            pose: runtime_pose(d)?, engine_clear: input(d, "engine_clear")?,
+        },
         "query_ray" | "query_build" | "query_route" => {
             let query_kind = match kind.to_string().as_str() {
                 "query_ray" => {
@@ -119,6 +129,21 @@ fn runtime_input(d: &VarDictionary) -> Result<rt::Input, String> {
         _ => return Err("invalid_command".into()),
     };
     Ok(rt::Input { request_id: seq, command })
+}
+fn runtime_pose(d: &VarDictionary) -> Result<rt::safety::Pose, String> {
+    let p: VarDictionary = input(d, "pose")?;
+    let aabb = |low: &str, high: &str| -> Result<rt::safety::Aabb, String> {
+        let low: Vector3 = input(&p, low)?;
+        let high: Vector3 = input(&p, high)?;
+        Ok(rt::safety::Aabb { low: [f64::from(low.x), f64::from(low.y), f64::from(low.z)],
+            high: [f64::from(high.x), f64::from(high.y), f64::from(high.z)] })
+    };
+    Ok(rt::safety::Pose {
+        frame: u64::try_from(input::<i64>(&p, "frame")?).map_err(|_| "invalid_pose")?,
+        player: aabb("player_min", "player_max")?,
+        camera: if input::<bool>(&p, "free_view")? { Some(aabb("camera_min", "camera_max")?) } else { None },
+        margin: input(&p, "margin")?,
+    })
 }
 fn runtime_build(d: &VarDictionary) -> Result<Vec<(Cell, Block, Direction)>, String> {
     let cells: godot::builtin::AnyArray = input(d, "cells")?;
@@ -209,6 +234,11 @@ fn runtime_result(r: rt::Completion) -> VarDictionary {
         "tick" => r.tick, "revision" => r.revision as i64,
     };
     let outcome = match r.outcome {
+        rt::Outcome::BuildPrepared { token, pose_frame, lift } => {
+            value.set("token", token as i64); value.set("pose_frame", pose_frame as i64); value.set("lift", lift);
+            "build_prepared"
+        },
+        rt::Outcome::BuildCommitted { lift } => { value.set("lift", lift); "build_committed" },
         rt::Outcome::Committed => "committed",
         rt::Outcome::QueryReady { query_id, view_generation, payload_bytes } => {
             value.set("query_id", query_id as i64);
@@ -320,8 +350,61 @@ fn runtime_page(p: rt::Page) -> VarDictionary {
         "timing" => &timing,
     }
 }
+fn display_info(info: &rt::display::Info) -> VarDictionary {
+    vdict! { "ok" => true, "world_epoch" => info.world_epoch as i64,
+        "view_generation" => info.generation as i64, "snapshot_id" => info.snapshot_id as i64,
+        "tick" => info.tick, "revision" => info.revision as i64,
+        "total_pages" => info.total_pages as i64, "total_bytes" => info.total_bytes as i64 }
+}
 #[godot_api(secondary)]
 impl FactoryBackend {
+    #[func]
+    fn request_display_runtime(&self, epoch: i64, generation: i64, keys: godot::builtin::AnyArray) -> VarDictionary {
+        let Some(runtime) = &self.runtime else { return save_error("runtime_not_open"); };
+        if keys.is_empty() || keys.len() > 64 { return save_error("invalid_argument"); }
+        let mut cells = Vec::with_capacity(keys.len());
+        for key in keys.iter_shared() {
+            let Ok(key) = key.try_to::<Vector3i>() else { return save_error("invalid_argument"); };
+            cells.push(cell(key));
+        }
+        let result = (|| runtime.request_display(runtime_integer(epoch)?, runtime_integer(generation)?, cells))();
+        match result { Ok(()) => vdict! { "ok" => true }, Err(error) => runtime_error(error) }
+    }
+    #[func]
+    fn poll_display_runtime(&self, epoch: i64, generation: i64) -> VarDictionary {
+        let Some(runtime) = &self.runtime else { return save_error("runtime_not_open"); };
+        let result = (|| runtime.poll_display(runtime_integer(epoch)?, runtime_integer(generation)?))();
+        match result { Ok(info) => display_info(&info), Err(error) => runtime_error(error) }
+    }
+    #[func]
+    fn poll_display_page_runtime(&self, epoch: i64, generation: i64, snapshot: i64, index: i64, bytes: i64) -> VarDictionary {
+        let Some(runtime) = &self.runtime else { return save_error("runtime_not_open"); };
+        let result = (|| runtime.poll_display_page(runtime_integer(epoch)?, runtime_integer(generation)?,
+            runtime_integer(snapshot)?, runtime_size(index)?, runtime_size(bytes)?))();
+        match result {
+            Ok(page) => {
+                let mut value = display_info(&page.info);
+                value.set("page_index", page.index as i64);
+                value.set("page_bytes", page.bytes as i64);
+                value.set("cells", &PackedInt32Array::from_iter(page.devices.iter().flat_map(|d| [d.cell.x, d.cell.y, d.cell.z])));
+                value.set("blocks", &PackedInt32Array::from_iter(page.devices.iter().map(|d| i32::from(d.block))));
+                value.set("directions", &PackedInt32Array::from_iter(page.devices.iter().map(|d| i32::from(d.direction))));
+                value.set("quantities", &godot::builtin::PackedInt64Array::from_iter(page.devices.iter().map(|d| d.quantity)));
+                value.set("inputs", &PackedInt32Array::from_iter(page.devices.iter().map(|d| i32::from(d.inputs))));
+                value.set("outputs", &PackedInt32Array::from_iter(page.devices.iter().map(|d| i32::from(d.outputs))));
+                value.set("ore_ids", &godot::builtin::PackedInt64Array::from_iter(page.ores.iter().map(|d| d.id as i64)));
+                value.set("transforms", &godot::builtin::PackedFloat32Array::from_iter(page.ores.iter().flat_map(|d| d.transform)));
+                value
+            },
+            Err(error) => runtime_error(error),
+        }
+    }
+    #[func]
+    fn release_display_runtime(&self, epoch: i64, generation: i64) -> VarDictionary {
+        let Some(runtime) = &self.runtime else { return save_error("runtime_not_open"); };
+        let result = (|| runtime.release_display(runtime_integer(epoch)?, runtime_integer(generation)?))();
+        match result { Ok(()) => vdict! { "ok" => true }, Err(error) => runtime_error(error) }
+    }
     #[func]
     fn open_runtime(&mut self, options: VarDictionary) -> VarDictionary {
         if !self.backend.is_open() { return save_error("backend_closed"); }

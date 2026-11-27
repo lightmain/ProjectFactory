@@ -177,6 +177,47 @@ impl Factory {
         }
         Ok(state)
     }
+    pub fn local_machine(
+        &self,
+        cell: Cell,
+        limit: usize,
+    ) -> Result<Option<super::MachineState>, Error> {
+        let Some(mut row) = self._layout.local_machine(cell, limit)? else {
+            return Ok(None);
+        };
+        let Some(bindings) = self._geometry.bindings.get(&cell) else {
+            return Ok(Some(row));
+        };
+        row.input_ports = self._geometry.ports[&cell]
+            .inputs
+            .map(|s| s.map(geometry::direction));
+        row.output_ports = self._geometry.ports[&cell]
+            .outputs
+            .map(|s| s.map(geometry::direction));
+        row.ores.clear();
+        for &binding in bindings {
+            let page = self._network.sample(
+                binding.segment,
+                binding.start,
+                binding.start + binding.length,
+                limit.saturating_sub(row.ores.len()),
+            )?;
+            if page.required > limit.saturating_sub(row.ores.len()) {
+                return Err(super::Error::Exhausted.into());
+            }
+            row.ores.extend(page.items.into_iter().map(|item| {
+                geometry::ore(binding, item.position, item.id.0, &self._geometry.ports)
+            }));
+        }
+        row.ores.sort_by(|a, b| {
+            b.progress
+                .total_cmp(&a.progress)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        row.quantity = row.ores.len() as i64;
+        row.eligible = row.quantity;
+        Ok(Some(row))
+    }
     /// Stage owned world/geometry edits, keeping untouched Network segments
     /// (including their queue corrections, junction holds and cursors).
     fn _edit(

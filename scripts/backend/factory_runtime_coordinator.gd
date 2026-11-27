@@ -8,6 +8,7 @@ signal protocol_error(error: String)
 
 const MAX_SEQUENCE: int = 9223372036854775807
 const COMMAND_KINDS: Array[String] = ["cell", "remove", "direction", "build", "build_route",
+	"prepare_build", "prepare_route", "confirm_build",
 	"query_ray", "query_build", "query_route", "frame", "pause", "resume", "save",
 	"list_directory", "prepare_load", "delete", "ready", "switch"]
 const DISK_KINDS: Array[String] = ["save", "list_directory", "prepare_load", "delete"]

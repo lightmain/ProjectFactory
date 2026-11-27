@@ -13,6 +13,8 @@ var player: FactoryPlayer
 var ready_for_play: bool = false
 var free_view: bool = false
 @export var save_root: String = "user://saves/rust_backend"
+@export var background_runtime: bool = true
+var _runtime: FactoryRuntimePlayground
 var world_id: String = ""
 var world_name: String = "新后端世界"
 var autosave_minutes: float = 5.0
@@ -71,26 +73,8 @@ func _ready() -> void:
 	add_child(player)
 	player.configure_gravity(9.8)
 	player.camera.rotation = Vector3(-0.35, 0.55, 0)
-	player.break_requested.connect(_break)
-	player.place_requested.connect(_place)
-	player.block_selected.connect(_select)
-	player.build_rotation_requested.connect(_rotate)
-	player.build_waypoint_requested.connect(_lock_route)
-	player.free_cancel_requested.connect(_cancel_route)
-	player.pause_requested.connect(func() -> void: set_paused(true))
-	player.inventory_requested.connect(_toggle_inventory)
-	player.view_mode_requested.connect(_toggle_view)
-	player.camera_input_requested.connect(_camera_input)
-	player.respawn_requested.connect(func() -> void:
-		_cancel_route()
-		player.respawn(player.spawn_position)
-	)
-	player.focus_lost.connect(func() -> void:
-		_capture_before_inventory = false
-		_capture_before_pause = false
-		_rotating = false
-		_cancel_route()
-	)
+	if not background_runtime:
+		_bind_synchronous_player()
 	_free_camera = Camera3D.new()
 	_free_camera.position = Vector3(4, 7, 6)
 	_free_camera.far = 80
@@ -147,6 +131,11 @@ func _ready() -> void:
 		return
 	if not _command("open_backend", [{"api_version": 1}]):
 		return
+	if background_runtime:
+		_ores.hide()
+		_runtime = FactoryRuntimePlayground.new(self, _backend)
+		_runtime.start_factory("conveyor_continuous_v1")
+		return
 	start_factory("conveyor_continuous_v1")
 	if not _backend.has_method("configure_persistence"):
 		_menu.set_message("后端版本不支持存档，请重新构建并重启编辑器。", true)
@@ -165,12 +154,18 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if _runtime != null:
+		_runtime.close()
 	if _backend != null:
 		_backend.call("close_backend")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func start_factory(ruleset: String) -> void:
+	if background_runtime:
+		if _runtime != null:
+			_runtime.start_factory(ruleset)
+		return
 	if _job_id != 0:
 		_save_message("请等待当前存档操作结束。")
 		return
@@ -190,16 +185,23 @@ func start_factory(ruleset: String) -> void:
 
 
 func snapshot() -> Dictionary:
+	if _runtime != null:
+		return _runtime.display_snapshot()
 	return _state.duplicate(true)
 
 
 func advance(delta: float) -> void:
+	if background_runtime:
+		return
 	if ready_for_play and not _paused:
 		if _command("advance_factory", [delta]):
 			_refresh()
 
 
 func _physics_process(delta: float) -> void:
+	if _runtime != null:
+		_runtime.physics_frame(delta)
+		return
 	advance(delta)
 	if free_view and not _paused and player.controls_enabled():
 		var movement: Vector2 = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
@@ -212,6 +214,14 @@ func _physics_process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _runtime != null:
+		if _runtime.state().paused and event.is_action_pressed("toggle_mouse") and not event.is_echo():
+			_runtime.handle_escape()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("toggle_inventory") and not event.is_echo():
+			player.handle_input(event)
+			get_viewport().set_input_as_handled()
+		return
 	if _paused and event.is_action_pressed("toggle_mouse") and not event.is_echo() and ready_for_play:
 		if _job_operation == "load":
 			cancel_persistence()
@@ -227,6 +237,9 @@ func _input(event: InputEvent) -> void:
 
 
 func set_paused(paused: bool) -> void:
+	if _runtime != null:
+		_runtime.set_paused(paused)
+		return
 	if not paused and _job_operation in ["load", "exit"]:
 		_save_message("正在读档；按 Esc 可取消，完成前保留暂停。" if _job_operation == "load"
 			else "正在保存并退出，请等待保存结果。")
@@ -763,11 +776,16 @@ func _build_interface() -> void:
 	layer.add_child(_inventory_view)
 	_inventory_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_inventory_view.bind_inventory(InventoryData.new())
-	_inventory_view.close_requested.connect(_close_inventory)
+	if not background_runtime:
+		_inventory_view.close_requested.connect(_close_inventory)
 	_menu = SessionMenu.new()
 	_menu.name = "SessionMenu"
 	layer.add_child(_menu)
 	_menu.transport_selected.connect(func(continuous: bool) -> void:
+		if background_runtime:
+			_menu.confirm_world_reset(func() -> void:
+				start_factory("conveyor_continuous_v1" if continuous else "legacy_discrete_v1"))
+			return
 		if _job_id != 0:
 			_show_pause_menu()
 			_save_message("请等待当前存档操作结束。")
@@ -776,6 +794,9 @@ func _build_interface() -> void:
 			start_factory("conveyor_continuous_v1" if continuous else "legacy_discrete_v1")
 			_show_pause_menu())
 	)
+	if background_runtime:
+		_menu.hide()
+		return
 	_menu.resume_requested.connect(func() -> void: set_paused(false) if ready_for_play else set_paused(true))
 	_menu.return_requested.connect(save_and_return)
 	_menu.save_requested.connect(func() -> void: open_save_files(true))
@@ -810,6 +831,9 @@ func _set_save_settings(value: String, minutes: float, retention: int) -> void:
 
 
 func _process(delta: float) -> void:
+	if _runtime != null:
+		_runtime.pump(delta)
+		return
 	poll_persistence()
 	advance_autosave(delta)
 
@@ -1057,6 +1081,29 @@ static func _dictionary(value: Variant) -> Dictionary:
 	if value is Dictionary:
 		return value
 	return {}
+
+
+func _bind_synchronous_player() -> void:
+	player.break_requested.connect(_break)
+	player.place_requested.connect(_place)
+	player.block_selected.connect(_select)
+	player.build_rotation_requested.connect(_rotate)
+	player.build_waypoint_requested.connect(_lock_route)
+	player.free_cancel_requested.connect(_cancel_route)
+	player.pause_requested.connect(func() -> void: set_paused(true))
+	player.inventory_requested.connect(_toggle_inventory)
+	player.view_mode_requested.connect(_toggle_view)
+	player.camera_input_requested.connect(_camera_input)
+	player.respawn_requested.connect(func() -> void:
+		_cancel_route()
+		player.respawn(player.spawn_position)
+	)
+	player.focus_lost.connect(func() -> void:
+		_capture_before_inventory = false
+		_capture_before_pause = false
+		_rotating = false
+		_cancel_route()
+	)
 
 
 static func _integer(value: Variant) -> int:

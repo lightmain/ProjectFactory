@@ -360,6 +360,36 @@ impl Factory {
         }
     }
 
+    /// Visits one indexed device; the ore budget is checked before cloning.
+    pub fn local_machine(&self, cell: Cell, limit: usize) -> Result<Option<MachineState>, Error> {
+        let Some(&index) = self._index.get(&cell) else {
+            return Ok(None);
+        };
+        let machine = &self._machines[index];
+        if machine.state.ores.len() > limit {
+            return Err(Error::Exhausted);
+        }
+        let mut row = machine.state.clone();
+        row.outgoing = machine
+            .outgoing
+            .map(|target| self._machines[target].state.cell);
+        row.inputs = machine
+            .inputs
+            .map(|source| source.map(|i| self._machines[i].state.cell));
+        row.output_ports = [Some(row.direction), None, None];
+        let mut sides = row.inputs.into_iter().flatten().map(|source| {
+            self._machines[self._index[&source]]
+                .state
+                .settled
+                .opposite()
+        });
+        row.input_ports = [sides.next(), sides.next(), sides.next()];
+        if row.input_ports[0].is_none() {
+            row.input_ports[0] = Some(row.direction.opposite());
+        }
+        Ok(Some(row))
+    }
+
     pub fn place(&mut self, cell: Cell, block: Block) -> Result<(), Error> {
         self._world.place(cell, block)?;
         if is_machine(block) {
